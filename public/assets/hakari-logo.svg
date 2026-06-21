@@ -1,0 +1,40 @@
+<svg width="924" height="247" viewBox="0 0 924 247" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="hakariPurple" x1="381" y1="18" x2="544" y2="219" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C980FF"/>
+      <stop offset="1" stop-color="#6A1FB8"/>
+    </linearGradient>
+    <linearGradient id="bladeGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFF8FF"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#14091F" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <text x="22" y="185" fill="#FAFAFC" font-family="Arial Black, Impact, sans-serif" font-size="194" font-style="italic" font-weight="900" letter-spacing="-10">HA</text>
+    <text x="338" y="190" fill="url(#hakariPurple)" font-family="Arial Black, Impact, sans-serif" font-size="214" font-style="italic" font-weight="900" letter-spacing="-12">K</text>
+    <text x="490" y="185" fill="#FAFAFC" font-family="Arial Black, Impact, sans-serif" font-size="194" font-style="italic" font-weight="900" letter-spacing="-12">ARI</text>
+  </g>
+
+  <path d="M382 26L401 40L380 56L373 46L382 26Z" fill="url(#hakariPurple)"/>
+  <path d="M404 54L455 18L470 28L414 68L404 54Z" fill="url(#hakariPurple)"/>
+  <path d="M468 36L503 20L512 33L478 49L468 36Z" fill="url(#hakariPurple)"/>
+  <path d="M470 78C485 64 511 63 528 76C513 94 487 95 470 78Z" fill="url(#hakariPurple)"/>
+  <path d="M496 62L512 77L496 110L480 77L496 62Z" fill="#1A0D27"/>
+  <path d="M611 50L628 57L605 83L596 74L611 50Z" fill="#14091F" opacity="0.55"/>
+  <path d="M826 19L848 34L823 51L816 39L826 19Z" fill="#14091F" opacity="0.45"/>
+
+  <g transform="translate(741 10)">
+    <path d="M34 0C46 0 56 10 56 22C56 34 46 44 34 44C22 44 12 34 12 22C12 10 22 0 34 0Z" stroke="#FAFAFC" stroke-width="9"/>
+    <path d="M34 42L34 161" stroke="#FAFAFC" stroke-width="12" stroke-linecap="round"/>
+    <path d="M16 56L52 84" stroke="#14091F" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+    <path d="M16 80L52 108" stroke="#14091F" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+    <path d="M16 104L52 132" stroke="#14091F" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+    <path d="M26 162L42 162L46 188L34 228L22 188L26 162Z" fill="url(#bladeGlow)"/>
+    <path d="M34 161L34 227" stroke="#FAFAFC" stroke-width="8" stroke-linecap="round"/>
+    <path d="M34 196L27 226L34 232L41 226L34 196Z" fill="#7E22CE"/>
+  </g>
+</svg>
