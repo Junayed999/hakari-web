@@ -130,10 +130,23 @@ const animeTypes = ['Movie', 'Music', 'ONA', 'OVA', 'Special', 'TV'];
 const sidebarCategories = ['Home', 'Genre', 'Types', 'Updated', 'Added', 'Popular', 'Ongoing', 'Completed'];
 const MAX_HOME_TOP_SEARCHES = 15;
 const INITIAL_HOME_TOP_SEARCHES_VISIBLE = 15;
+const defaultHomepageSections = {
+  featured: { label: 'Featured Anime', enabled: true, order: 1, source: 'featured', limit: 8 },
+  trending: { label: 'Trending Anime', enabled: true, order: 2, source: 'trending', limit: 10 },
+  topSearches: { label: 'Top Searches', enabled: true, order: 3, source: 'topSearches', limit: 15 },
+  topAiring: { label: 'Top Airing', enabled: true, order: 4, source: 'topAiring', limit: 10 },
+  latestEpisodes: { label: 'Latest Episodes', enabled: true, order: 5, source: 'latestEpisodes', limit: 10 },
+  mostPopular: { label: 'Most Popular', enabled: true, order: 6, source: 'mostPopular', limit: 10 },
+  recentlyAdded: { label: 'Recently Added', enabled: true, order: 7, source: 'recentlyAdded', limit: 10 }
+};
 const defaultTopSearchSettings = {
+  rankedIds: [],
   pinnedIds: [],
   manualIds: [],
   hiddenIds: []
+};
+const defaultTrendingSettings = {
+  rankedIds: []
 };
 
 const defaultSiteSettings = {
@@ -143,16 +156,14 @@ const defaultSiteSettings = {
     backgroundImage: heroArt
   },
   sidebar: Object.fromEntries(sidebarCategories.map((category) => [category, true])),
-  homepageSections: {
-    featured: true,
-    trending: true,
-    topSearches: true,
-    topAiring: true,
-    latestEpisodes: true,
-    mostPopular: true,
-    recentlyAdded: true
-  },
+  homepageSections: defaultHomepageSections,
   topSearches: defaultTopSearchSettings,
+  trending: defaultTrendingSettings,
+  heroBanners: [],
+  library: {
+    genres: [...genres],
+    types: [...animeTypes]
+  },
   genres: Object.fromEntries(genres.map((genre) => [genre, true])),
   types: Object.fromEntries(animeTypes.map((type) => [type, true]))
 };
@@ -754,6 +765,46 @@ const animeAvatarOptions = avatarPresets.map((preset, index) => ({
   src: createAvatarDataUri(preset)
 }));
 
+const defaultUsers = [
+  {
+    id: 'user-admin',
+    username: 'Hakari Admin',
+    email: 'admin@hakari.local',
+    avatar: animeAvatarOptions[0]?.src || '',
+    joinDate: '2026-01-01',
+    verified: true,
+    provider: 'google',
+    role: 'admin',
+    status: 'active',
+    lastLoginAt: '2026-06-25T10:30:00.000Z'
+  },
+  {
+    id: 'user-viewer-1',
+    username: 'Mika',
+    email: 'mika@hakari.local',
+    avatar: animeAvatarOptions[3]?.src || '',
+    joinDate: '2026-03-12',
+    verified: true,
+    provider: 'google',
+    role: 'member',
+    status: 'active',
+    lastLoginAt: '2026-06-24T16:14:00.000Z'
+  },
+  {
+    id: 'user-viewer-2',
+    username: 'Ren',
+    email: 'ren@hakari.local',
+    avatar: animeAvatarOptions[5]?.src || '',
+    joinDate: '2026-04-02',
+    verified: true,
+    provider: 'google',
+    role: 'member',
+    status: 'banned',
+    lastLoginAt: '2026-06-19T08:45:00.000Z',
+    bannedAt: '2026-06-21T12:00:00.000Z'
+  }
+];
+
 function normalizeWatchlist(value) {
   if (Array.isArray(value)) {
     return Object.fromEntries(value.map((id) => [id, 'Planned']));
@@ -772,15 +823,294 @@ function normalizeTopSearchSettings(value) {
       : []
   );
 
+  const rankedIds = normalizeIds(source.rankedIds);
   const pinnedIds = normalizeIds(source.pinnedIds);
   const manualIds = normalizeIds(source.manualIds).filter((id) => !pinnedIds.includes(id));
   const hiddenIds = normalizeIds(source.hiddenIds).filter((id) => !pinnedIds.includes(id) && !manualIds.includes(id));
 
   return {
+    rankedIds,
     pinnedIds,
     manualIds,
     hiddenIds
   };
+}
+
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `item-${Date.now()}`;
+}
+
+function normalizeHomepageSections(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  return Object.fromEntries(
+    Object.entries(defaultHomepageSections).map(([key, defaults]) => {
+      const current = source[key];
+      if (typeof current === 'boolean') {
+        return [key, { ...defaults, enabled: current }];
+      }
+      return [
+        key,
+        {
+          ...defaults,
+          ...(current && typeof current === 'object' ? current : {}),
+          enabled: current?.enabled ?? defaults.enabled,
+          order: clamp(Number(current?.order ?? defaults.order), 1, 99),
+          limit: clamp(Number(current?.limit ?? defaults.limit), 1, 30),
+          source: current?.source || defaults.source
+        }
+      ];
+    })
+  );
+}
+
+function getLibraryGenres(settings, anime = []) {
+  const configured = Array.isArray(settings?.library?.genres) ? settings.library.genres : genres;
+  const occupied = new Set(anime.flatMap((item) => item.genres || []));
+  const combined = [...configured];
+  occupied.forEach((genre) => {
+    if (!combined.includes(genre)) combined.push(genre);
+  });
+  return combined.filter(Boolean);
+}
+
+function getLibraryTypes(settings, anime = []) {
+  const configured = Array.isArray(settings?.library?.types) ? settings.library.types : animeTypes;
+  const occupied = new Set(anime.map((item) => item.type).filter(Boolean));
+  const combined = [...configured];
+  occupied.forEach((type) => {
+    if (!combined.includes(type)) combined.push(type);
+  });
+  return combined.filter(Boolean);
+}
+
+function normalizeUserRecord(value) {
+  if (!value || typeof value !== 'object') return null;
+  const email = String(value.email || '').trim().toLowerCase();
+  if (!email) return null;
+  const status = value.status === 'banned' ? 'banned' : 'active';
+  return {
+    id: value.id || slugify(email),
+    username: value.username || email.split('@')[0] || 'Hakari User',
+    email,
+    avatar: value.avatar || '',
+    joinDate: value.joinDate || new Date().toISOString().slice(0, 10),
+    verified: value.verified ?? true,
+    provider: value.provider || 'google',
+    role: value.role === 'admin' ? 'admin' : 'member',
+    status,
+    bannedAt: status === 'banned' ? value.bannedAt || new Date().toISOString() : '',
+    lastLoginAt: value.lastLoginAt || '',
+    preferences: normalizeUserPreferences(value.preferences)
+  };
+}
+
+function normalizeUserDirectory(value) {
+  const source = Array.isArray(value) ? value : defaultUsers;
+  const directory = source
+    .map(normalizeUserRecord)
+    .filter(Boolean)
+    .filter((item, index, list) => list.findIndex((entry) => entry.email === item.email) === index);
+  return directory.length ? directory : defaultUsers.map((item) => normalizeUserRecord(item)).filter(Boolean);
+}
+
+function normalizeHeroBanners(value, anime) {
+  const source = Array.isArray(value) ? value : [];
+  const featured = anime.filter((item) => item.tags?.includes('featured')).slice(0, 4);
+  const banners = source.length ? source : featured.map((item, index) => ({
+    id: `hero-${item.id}`,
+    animeId: item.id,
+    title: item.title,
+    description: item.description,
+    metadata: [item.ageRating || 'PG-13', item.quality || 'HD', item.type || 'TV', 'Year', 'CC', ...(item.audio?.includes('dub') ? ['Dub'] : [])],
+    image: item.image || item.coverImage || heroArt,
+    active: true,
+    order: index + 1
+  }));
+
+  return banners
+    .map((banner, index) => ({
+      id: banner.id || `hero-banner-${index + 1}`,
+      animeId: banner.animeId || featured[index % Math.max(featured.length, 1)]?.id || anime[0]?.id || '',
+      title: banner.title || '',
+      description: banner.description || '',
+      metadata: Array.isArray(banner.metadata) ? banner.metadata.filter(Boolean) : [],
+      image: banner.image || heroArt,
+      active: banner.active !== false,
+      order: clamp(Number(banner.order || index + 1), 1, 99)
+    }))
+    .sort((a, b) => a.order - b.order);
+}
+
+function buildHeroSlides(anime, settings) {
+  const banners = normalizeHeroBanners(settings?.heroBanners, anime).filter((item) => item.active !== false);
+  const slides = banners.map((banner) => {
+    const linkedAnime = anime.find((item) => item.id === banner.animeId) || anime[0] || {};
+    const metadata = new Set(banner.metadata || []);
+    return {
+      ...linkedAnime,
+      id: linkedAnime.id || banner.id,
+      title: banner.title || linkedAnime.title,
+      english: banner.title || linkedAnime.english || linkedAnime.title,
+      description: banner.description || linkedAnime.description || linkedAnime.longDescription,
+      longDescription: banner.description || linkedAnime.longDescription || linkedAnime.description,
+      image: banner.image || linkedAnime.image || linkedAnime.coverImage || heroArt,
+      coverImage: banner.image || linkedAnime.coverImage || linkedAnime.image || heroArt,
+      ageRating: metadata.has('PG-13') ? 'PG-13' : linkedAnime.ageRating || 'PG-13',
+      quality: metadata.has('HD') ? 'HD' : linkedAnime.quality || 'HD',
+      type: metadata.has('Movie') ? 'Movie' : metadata.has('TV') ? 'TV' : linkedAnime.type || 'TV',
+      year: linkedAnime.year,
+      audio: [
+        ...(metadata.has('CC') ? ['sub'] : []),
+        ...(metadata.has('Dub') ? ['dub'] : [])
+      ].filter(Boolean).length
+        ? [
+          ...(metadata.has('CC') ? ['sub'] : []),
+          ...(metadata.has('Dub') ? ['dub'] : [])
+        ]
+        : linkedAnime.audio || ['sub', 'dub']
+    };
+  });
+  return slides.length ? slides : anime.filter((item) => item.tags?.includes('featured')).slice(0, 4);
+}
+
+function resolveTrendingAnime(anime, settings, limit = 10) {
+  const rankedIds = Array.isArray(settings?.trending?.rankedIds) ? settings.trending.rankedIds.filter(Boolean) : [];
+  const byId = new Map(anime.map((item) => [item.id, item]));
+  const selected = [];
+  const seen = new Set();
+  const push = (id) => {
+    if (seen.has(id)) return;
+    const item = byId.get(id);
+    if (!item) return;
+    seen.add(id);
+    selected.push(item);
+  };
+  rankedIds.forEach(push);
+  anime
+    .filter((item) => item.tags?.includes('trending'))
+    .sort((a, b) => b.views - a.views)
+    .forEach((item) => push(item.id));
+  anime
+    .slice()
+    .sort((a, b) => b.views - a.views)
+    .forEach((item) => push(item.id));
+  return selected.slice(0, Math.min(limit, anime.length));
+}
+
+function normalizeEpisodeTracks(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const entries = Object.entries(source).map(([track, qualities]) => [
+    track,
+    Array.isArray(qualities)
+      ? qualities
+        .map((item) => ({
+          quality: item?.quality || 'Auto',
+          url: item?.url || ''
+        }))
+        .filter((item) => item.url)
+      : []
+  ]);
+  return Object.fromEntries(entries.filter(([, qualities]) => qualities.length));
+}
+
+function normalizeEpisodeEntry(value, fallbackAnime, fallbackNumber) {
+  if (!value || typeof value !== 'object') return null;
+  const tracks = normalizeEpisodeTracks(value.mediaTracks);
+  const legacySources = value.sources && typeof value.sources === 'object'
+    ? Object.fromEntries(
+      Object.entries(value.sources)
+        .filter(([, url]) => url)
+        .map(([track, url]) => [track, [{ quality: 'Auto', url }]])
+    )
+    : {};
+  const mediaTracks = Object.keys(tracks).length ? tracks : legacySources;
+  const number = Math.max(1, Number(value.number || fallbackNumber || 1));
+  return {
+    id: value.id || `${fallbackAnime?.id || 'anime'}-ep-${number}`,
+    number,
+    title: value.title || `Episode ${number}`,
+    description: value.description || `Episode ${number} of ${fallbackAnime?.title || 'Hakari'} expands the story.`,
+    thumbnail: value.thumbnail || getAnimeImage(fallbackAnime),
+    thumbnailPosition: value.thumbnailPosition || '50% 50%',
+    mediaTracks,
+    sources: Object.fromEntries(
+      Object.entries(mediaTracks).map(([track, qualities]) => [track, qualities[0]?.url || ''])
+    )
+  };
+}
+
+function normalizeEpisodeStore(value, anime) {
+  const source = value && typeof value === 'object' ? value : {};
+  return Object.fromEntries(
+    anime.map((item) => {
+      const entries = Array.isArray(source[item.id]) ? source[item.id] : makeEpisodes(item);
+      return [
+        item.id,
+        entries
+          .map((episode, index) => normalizeEpisodeEntry(episode, item, index + 1))
+          .filter(Boolean)
+          .sort((a, b) => a.number - b.number)
+      ];
+    })
+  );
+}
+
+function createEpisodeRecord(animeItem, number, overrides = {}) {
+  return normalizeEpisodeEntry(
+    {
+      id: `${animeItem.id}-ep-${number}`,
+      number,
+      title: overrides.title || `Episode ${number}`,
+      description: overrides.description || `Episode ${number} of ${animeItem.title} expands the central mystery with sharp character turns and polished action beats.`,
+      thumbnail: overrides.thumbnail || animeItem.image || heroArt,
+      mediaTracks: overrides.mediaTracks || {
+        sub: [{ quality: '1080p', url: sampleSources.sub }],
+        ...(overrides.includeDub ? { dub: [{ quality: '1080p', url: sampleSources.dub }] } : {})
+      }
+    },
+    animeItem,
+    number
+  );
+}
+
+function getEpisodePlayerSources(episode) {
+  const tracks = normalizeEpisodeTracks(episode?.mediaTracks);
+  return Object.fromEntries(
+    Object.entries(tracks).map(([track, qualities]) => [track, qualities[0]?.url || ''])
+  );
+}
+
+function formatDateLabel(value) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return 'Unknown';
+  return parsed.toLocaleDateString();
+}
+
+function formatDateTimeLabel(value) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return 'Never';
+  return parsed.toLocaleString();
+}
+
+function formatInputDate(value) {
+  const parsed = value ? new Date(value) : null;
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function resolveAnimeSourceItems(anime, source) {
+  if (source === 'featured') return anime.filter((item) => item.tags?.includes('featured'));
+  if (source === 'trending') return anime.filter((item) => item.tags?.includes('trending'));
+  if (source === 'topAiring') return anime.filter((item) => item.tags?.includes('topAiring'));
+  if (source === 'latestEpisodes') return [...anime].sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a));
+  if (source === 'mostPopular') return [...anime].sort((a, b) => b.views - a.views);
+  if (source === 'recentlyAdded') return [...anime].sort((a, b) => getAddedTime(b) - getAddedTime(a));
+  return anime;
 }
 
 function getAnimeMeta(anime) {
@@ -856,12 +1186,12 @@ function getAddedTime(anime) {
 
 function getVisibleGenres(anime, settings = defaultSiteSettings) {
   const occupied = new Set(anime.flatMap((item) => item.genres || []));
-  return genres.filter((genre) => occupied.has(genre) && settings.genres?.[genre] !== false);
+  return getLibraryGenres(settings, anime).filter((genre) => occupied.has(genre) && settings.genres?.[genre] !== false);
 }
 
 function getVisibleTypes(anime, settings = defaultSiteSettings) {
   const occupied = new Set(anime.map((item) => item.type));
-  return animeTypes.filter((type) => occupied.has(type) && settings.types?.[type] !== false);
+  return getLibraryTypes(settings, anime).filter((type) => occupied.has(type) && settings.types?.[type] !== false);
 }
 
 function getRankedSearchAnime(anime, analytics) {
@@ -878,7 +1208,7 @@ function getTopSearches(anime, analytics, limit = 7) {
 function resolveHomeTopSearches(anime, analytics, settings, limit = MAX_HOME_TOP_SEARCHES) {
   const ranked = getRankedSearchAnime(anime, analytics);
   const byId = new Map(ranked.map((item) => [item.id, item]));
-  const { pinnedIds, manualIds, hiddenIds } = normalizeTopSearchSettings(settings);
+  const { rankedIds, pinnedIds, manualIds, hiddenIds } = normalizeTopSearchSettings(settings);
   const hiddenSet = new Set(hiddenIds);
   const items = [];
   const seen = new Set();
@@ -890,6 +1220,11 @@ function resolveHomeTopSearches(anime, analytics, settings, limit = MAX_HOME_TOP
     seen.add(id);
     items.push(item);
   };
+
+  if (rankedIds.length) {
+    rankedIds.forEach(pushById);
+    return items.slice(0, limit);
+  }
 
   pinnedIds.forEach(pushById);
   manualIds.forEach(pushById);
@@ -1057,9 +1392,11 @@ const HOVER_EXIT_DURATION_MS = 200;
 function App() {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
   const [anime, setAnime] = useLocalStore('hakari-anime', seedAnime);
+  const [episodesByAnime, setEpisodesByAnime] = useLocalStore('hakari-episodes', seedEpisodes);
   const [watchlist, setWatchlist] = useLocalStore('hakari-watchlist', {});
   const [history, setHistory] = useLocalStore('hakari-history', []);
   const [user, setUser] = useLocalStore('hakari-user', null);
+  const [userDirectory, setUserDirectory] = useLocalStore('hakari-users', defaultUsers);
   const [siteSettings, setSiteSettings] = useLocalStore('hakari-site-settings', defaultSiteSettings);
   const [searchAnalytics, setSearchAnalytics] = useLocalStore('hakari-search-analytics', defaultSearchAnalytics);
   const [watchlistTarget, setWatchlistTarget] = useState(null);
@@ -1099,6 +1436,39 @@ function App() {
   }, [user, setUser]);
 
   useEffect(() => {
+    setEpisodesByAnime((current) => {
+      const normalized = normalizeEpisodeStore(current, anime);
+      return JSON.stringify(normalized) === JSON.stringify(current) ? current : normalized;
+    });
+  }, [anime, setEpisodesByAnime]);
+
+  useEffect(() => {
+    setUserDirectory((current) => {
+      const normalized = normalizeUserDirectory(current);
+      if (!normalizedUser?.email) return normalized;
+      const activeUser = normalizeUserRecord({
+        ...normalizedUser,
+        status: 'active',
+        lastLoginAt: new Date().toISOString()
+      });
+      if (!activeUser) return normalized;
+      const next = normalized.filter((entry) => entry.email !== activeUser.email);
+      return [activeUser, ...next];
+    });
+  }, [normalizedUser, setUserDirectory]);
+
+  useEffect(() => {
+    if (!normalizedUser?.email) return;
+    const matchedUser = normalizeUserDirectory(userDirectory).find((entry) => entry.email === normalizedUser.email.toLowerCase());
+    if (matchedUser?.status === 'banned') {
+      setUser(null);
+      if (route.name === 'watch' || route.name === 'watchlist' || route.name === 'profile') {
+        location.hash = '#/home';
+      }
+    }
+  }, [normalizedUser, route.name, setUser, userDirectory]);
+
+  useEffect(() => {
     setAnime((items) => {
       const missing = topSearchAnime.filter((item) => !items.some((animeItem) => animeItem.id === item.id));
       return missing.length ? [...missing, ...items] : items;
@@ -1125,11 +1495,17 @@ function App() {
     ...siteSettings,
     landing: { ...defaultSiteSettings.landing, ...(siteSettings.landing || {}) },
     sidebar: { ...defaultSiteSettings.sidebar, ...(siteSettings.sidebar || {}) },
-    homepageSections: { ...defaultSiteSettings.homepageSections, ...(siteSettings.homepageSections || {}) },
+    homepageSections: normalizeHomepageSections(siteSettings.homepageSections || defaultHomepageSections),
     topSearches: normalizeTopSearchSettings(siteSettings.topSearches || defaultTopSearchSettings),
+    trending: { ...defaultTrendingSettings, ...(siteSettings.trending || {}) },
+    heroBanners: normalizeHeroBanners(siteSettings.heroBanners || [], anime),
+    library: {
+      genres: getLibraryGenres(siteSettings, anime),
+      types: getLibraryTypes(siteSettings, anime)
+    },
     genres: { ...defaultSiteSettings.genres, ...(siteSettings.genres || {}) },
     types: { ...defaultSiteSettings.types, ...(siteSettings.types || {}) }
-  }), [siteSettings]);
+  }), [anime, siteSettings]);
 
   const setWatchlistCategory = useCallback((animeId, category) => {
     setWatchlist((items) => {
@@ -1434,6 +1810,8 @@ function App() {
   const context = {
     anime,
     setAnime,
+    episodesByAnime,
+    setEpisodesByAnime,
     watchlist: watchlistMap,
     setWatchlistCategory,
     toggleWatchlist,
@@ -1447,6 +1825,8 @@ function App() {
     setSearchAnalytics,
     user: normalizedUser,
     setUser,
+    userDirectory: normalizeUserDirectory(userDirectory),
+    setUserDirectory,
     userPreferences,
     notifications,
     setNotifications,
@@ -1478,7 +1858,7 @@ function App() {
           {route.name === 'watchlist' && <WatchlistPage {...context} />}
           {route.name === 'profile' && <ProfilePage {...context} route={route} />}
           {route.name === 'settings' && <SettingsPage />}
-          {route.name === 'admin' && <AdminPage {...context} />}
+          {route.name === 'admin' && <HakariAdminPage {...context} />}
         </main>
         {watchlistTarget && (
           <WatchlistPopup
@@ -1557,7 +1937,7 @@ function BrandLogo({ className = 'logo', label = 'Hakari', onClick }) {
   );
 }
 
-function HeaderDropdown({ isOpen, type, onClose, navigate, triggerRef }) {
+function HeaderDropdown({ isOpen, type, onClose, navigate, triggerRef, siteSettings, anime }) {
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -1571,8 +1951,8 @@ function HeaderDropdown({ isOpen, type, onClose, navigate, triggerRef }) {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [isOpen, onClose, triggerRef]);
 
-  const genresList = ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Isekai', 'Romance', 'Sci-Fi', 'Sports', 'Horror', 'Mystery', 'Psychological', 'Slice of Life', 'Supernatural'];
-  const typesList = ['TV', 'Movie', 'OVA', 'ONA', 'Special', 'Music'];
+  const genresList = getVisibleGenres(anime, siteSettings);
+  const typesList = getVisibleTypes(anime, siteSettings);
   
   const items = type === 'genre' ? genresList : type === 'type' ? typesList : [];
 
@@ -1613,7 +1993,10 @@ function Header({
   anime,
   user,
   setUser,
+  userDirectory,
+  setUserDirectory,
   navigate,
+  siteSettings,
   watchlist,
   setWatchlistCategory,
   userPreferences,
@@ -1739,6 +2122,8 @@ function Header({
               onClose={() => setHeaderDropdown(null)}
               navigate={navigate}
               triggerRef={dropdownTriggerRef}
+              siteSettings={siteSettings}
+              anime={anime}
             />
           </div>
           <button className="iconButton notificationButton" onClick={() => setNoticeOpen(!noticeOpen)} aria-label="Notifications">
@@ -1827,7 +2212,7 @@ function Header({
           </motion.div>
         )}
       </AnimatePresence>
-      {authOpen && <AuthModal setUser={setUser} onClose={() => setAuthOpen(false)} />}
+      {authOpen && <AuthModal setUser={setUser} userDirectory={userDirectory} setUserDirectory={setUserDirectory} onClose={() => setAuthOpen(false)} />}
     </header>
   );
 }
@@ -2274,27 +2659,45 @@ function HeaderSearch({ anime, navigate, addSearch, watchlist, setWatchlistCateg
 
 function HomePage(props) {
   const { anime, siteSettings, userPreferences, searchAnalytics } = props;
-  const sections = siteSettings.homepageSections || defaultSiteSettings.homepageSections;
-  const trendingAnime = anime.filter((item) => item.tags.includes('trending')).slice(0, 10);
+  const sections = normalizeHomepageSections(siteSettings.homepageSections || defaultHomepageSections);
+  const heroSlides = buildHeroSlides(anime, siteSettings);
+  const trendingAnime = resolveTrendingAnime(anime, siteSettings, sections.trending?.limit || 10);
   const topSearchItems = useMemo(
-    () => resolveHomeTopSearches(anime, searchAnalytics, siteSettings.topSearches, anime.length),
-    [anime, searchAnalytics, siteSettings.topSearches]
+    () => resolveHomeTopSearches(anime, searchAnalytics, siteSettings.topSearches, sections.topSearches?.limit || anime.length),
+    [anime, searchAnalytics, sections.topSearches?.limit, siteSettings.topSearches]
   );
+  const railSections = Object.entries(sections)
+    .filter(([key]) => !['trending', 'topSearches'].includes(key))
+    .map(([key, config]) => ({
+      key,
+      title: config.label,
+      enabled: config.enabled !== false,
+      order: config.order,
+      limit: config.limit,
+      source: config.source
+    }))
+    .filter((item) => item.enabled !== false)
+    .sort((a, b) => a.order - b.order);
 
   return (
     <>
-      <HeroSlider {...props} slides={anime.filter((item) => item.tags.includes('featured')).slice(0, 4)} />
-      {trendingAnime.length > 0 && <TrendingHeroSection items={trendingAnime} navigate={props.navigate} userPreferences={props.userPreferences} />}
+      <HeroSlider {...props} slides={heroSlides} />
+      {sections.trending?.enabled !== false && trendingAnime.length > 0 && <TrendingHeroSection items={trendingAnime} navigate={props.navigate} userPreferences={props.userPreferences} />}
       <div className="homeContentGrid siteContainer">
         <div className="homePrimaryColumn">
           {userPreferences.showContinueWatchingOnHome && <ContinueWatching {...props} withinHomeGrid />}
-          {sections.featured && <AnimeSection title="Featured Anime" items={anime.filter((item) => item.tags.includes('featured'))} withinHomeGrid {...props} />}
-          {sections.topAiring && <AnimeSection title="Top Airing" items={anime.filter((item) => item.tags.includes('topAiring'))} withinHomeGrid {...props} />}
-          {sections.latestEpisodes && <AnimeSection title="Latest Episodes" items={[...anime].sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a))} latest withinHomeGrid {...props} />}
-          {sections.mostPopular && <AnimeSection title="Most Popular" items={[...anime].sort((a, b) => b.views - a.views)} withinHomeGrid {...props} />}
-          {sections.recentlyAdded && <AnimeSection title="Recently Added" items={[...anime].sort((a, b) => getAddedTime(b) - getAddedTime(a)).slice(0, 10)} withinHomeGrid {...props} />}
+          {railSections.map((section) => (
+            <AnimeSection
+              key={section.key}
+              title={section.title}
+              items={resolveAnimeSourceItems(anime, section.source).slice(0, section.limit)}
+              latest={section.source === 'latestEpisodes'}
+              withinHomeGrid
+              {...props}
+            />
+          ))}
         </div>
-        {sections.topSearches && topSearchItems.length > 0 && (
+        {sections.topSearches?.enabled !== false && topSearchItems.length > 0 && (
           <aside className="homeSidebarColumn">
             <TopSearchesSection items={topSearchItems} {...props} />
           </aside>
@@ -2719,7 +3122,10 @@ function AnimeHoverPanel({
 
 function HeroSlider({ slides, navigate, userPreferences }) {
   const sliderSlides = Array.isArray(slides) && slides.filter(Boolean).length ? slides.filter(Boolean) : [seedAnime[0]];
-  const initialTrackIndex = sliderSlides.length <= 1 ? 0 : 1;
+  const initialTrackIndex = sliderSlides.length <= 1 ? 0 : 2;
+  const realTrackStartIndex = sliderSlides.length <= 1 ? 0 : 2;
+  const minLoopTrackIndex = sliderSlides.length <= 1 ? 0 : 1;
+  const maxLoopTrackIndex = sliderSlides.length <= 1 ? 0 : sliderSlides.length + 2;
   const [currentIndex, setCurrentIndex] = useState(initialTrackIndex);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isDraggingState, setIsDraggingState] = useState(false);
@@ -2735,13 +3141,25 @@ function HeroSlider({ slides, navigate, userPreferences }) {
   const dragFrameRef = useRef(0);
   const transitionFallbackRef = useRef(null);
   const transitionTokenRef = useRef(0);
+  const autoplayResumeTimeoutRef = useRef(null);
+  const autoplayIntervalRef = useRef(null);
   
   const extendedSlides = useMemo(() => {
     if (sliderSlides.length <= 1) return sliderSlides;
+    const len = sliderSlides.length;
+    if (len === 2) {
+      return [
+        sliderSlides[0], sliderSlides[1],
+        sliderSlides[0], sliderSlides[1],
+        sliderSlides[0], sliderSlides[1]
+      ];
+    }
     return [
-      sliderSlides[sliderSlides.length - 1],
+      sliderSlides[len - 2],
+      sliderSlides[len - 1],
       ...sliderSlides,
-      sliderSlides[0]
+      sliderSlides[0],
+      sliderSlides[1]
     ];
   }, [sliderSlides]);
 
@@ -2764,10 +3182,23 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     }
   }, []);
 
+  const clearAutoplayResumeTimeout = useCallback(() => {
+    if (autoplayResumeTimeoutRef.current) {
+      window.clearTimeout(autoplayResumeTimeoutRef.current);
+      autoplayResumeTimeoutRef.current = null;
+    }
+  }, []);
+
   const clampTrackIndex = useCallback((index) => {
     if (sliderSlides.length <= 1) return 0;
-    return Math.min(Math.max(index, 0), sliderSlides.length + 1);
-  }, [sliderSlides.length]);
+    return Math.min(maxLoopTrackIndex, Math.max(minLoopTrackIndex, index));
+  }, [maxLoopTrackIndex, minLoopTrackIndex, sliderSlides.length]);
+
+  const normalizeTrackIndex = useCallback((index) => {
+    if (sliderSlides.length <= 1) return 0;
+    const normalizedOffset = ((index - realTrackStartIndex) % sliderSlides.length + sliderSlides.length) % sliderSlides.length;
+    return realTrackStartIndex + normalizedOffset;
+  }, [realTrackStartIndex, sliderSlides.length]);
 
   const setTrackIndex = useCallback((index) => {
     const safeIndex = clampTrackIndex(index);
@@ -2778,7 +3209,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
 
   const applyTrackTransform = useCallback((withTransition = false, index = currentIndexRef.current) => {
     if (!trackRef.current) return;
-    trackRef.current.style.transition = withTransition ? 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
+    trackRef.current.style.transition = withTransition ? 'transform 450ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none';
     trackRef.current.style.transform = `translate3d(calc(-${index * 100}% + ${dragOffsetRef.current}px), 0, 0)`;
   }, []);
 
@@ -2802,12 +3233,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
       return;
     }
 
-    let snapIndex = currentIndexRef.current;
-    if (currentIndexRef.current <= 0) {
-      snapIndex = sliderSlides.length;
-    } else if (currentIndexRef.current >= sliderSlides.length + 1) {
-      snapIndex = 1;
-    }
+    const snapIndex = normalizeTrackIndex(currentIndexRef.current);
 
     dragOffsetRef.current = 0;
     dragOriginOffsetRef.current = 0;
@@ -2819,7 +3245,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     }
 
     applyTrackTransform(false, snapIndex);
-  }, [applyTrackTransform, clearTransitionFallback, setTrackIndex, setTransitionState, sliderSlides.length]);
+  }, [applyTrackTransform, clearTransitionFallback, normalizeTrackIndex, setTrackIndex, setTransitionState, sliderSlides.length]);
 
   const beginTrackTransition = useCallback((targetIndex, { force = false } = {}) => {
     if (sliderSlides.length <= 1) return false;
@@ -2841,7 +3267,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
       applyTrackTransform(true, safeIndex);
     }
 
-    transitionFallbackRef.current = window.setTimeout(() => finalizeTransition(token), 700);
+    transitionFallbackRef.current = window.setTimeout(() => finalizeTransition(token), 600);
     return true;
   }, [applyTrackTransform, cancelDragPaint, clampTrackIndex, clearTransitionFallback, finalizeTransition, setTrackIndex, setTransitionState, sliderSlides.length]);
 
@@ -2855,20 +3281,46 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     beginTrackTransition(currentIndexRef.current - 1);
   }, [beginTrackTransition, sliderSlides.length]);
 
-  useEffect(() => {
-    if (sliderSlides.length <= 1 || isDraggingState) return undefined;
-    const id = setInterval(() => {
+  const stopAutoplay = useCallback(() => {
+    if (autoplayIntervalRef.current) {
+      clearInterval(autoplayIntervalRef.current);
+      autoplayIntervalRef.current = null;
+    }
+  }, []);
+
+  const startAutoplay = useCallback(() => {
+    stopAutoplay();
+    if (sliderSlides.length <= 1 || isDraggingRef.current) return;
+    autoplayIntervalRef.current = setInterval(() => {
       goToNext();
-    }, 4000);
-    return () => clearInterval(id);
-  }, [goToNext, isDraggingState, sliderSlides.length]);
+    }, 4500);
+  }, [goToNext, stopAutoplay, sliderSlides.length]);
+
+  const pauseAutoplay = useCallback(() => {
+    stopAutoplay();
+    clearAutoplayResumeTimeout();
+  }, [clearAutoplayResumeTimeout, stopAutoplay]);
+
+  const scheduleAutoplayResume = useCallback(() => {
+    clearAutoplayResumeTimeout();
+    autoplayResumeTimeoutRef.current = window.setTimeout(() => {
+      autoplayResumeTimeoutRef.current = null;
+      goToNext();
+      startAutoplay();
+    }, 3000);
+  }, [clearAutoplayResumeTimeout, startAutoplay, goToNext]);
+
+  useEffect(() => {
+    startAutoplay();
+    return () => stopAutoplay();
+  }, [startAutoplay, stopAutoplay]);
 
   useLayoutEffect(() => {
     applyTrackTransform(isTransitioning && dragOffsetRef.current === 0 && !isDraggingRef.current, currentIndex);
   }, [applyTrackTransform, currentIndex, isTransitioning]);
 
   useEffect(() => {
-    const resetIndex = sliderSlides.length <= 1 ? 0 : 1;
+    const resetIndex = sliderSlides.length <= 1 ? 0 : 2;
     clearTransitionFallback();
     transitionTokenRef.current += 1;
     currentIndexRef.current = resetIndex;
@@ -2878,13 +3330,15 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     dragPointerIdRef.current = null;
     setTransitionState(false);
     setIsDraggingState(false);
+    clearAutoplayResumeTimeout();
     setCurrentIndex(resetIndex);
-  }, [clearTransitionFallback, setTransitionState, sliderSlides.length]);
+  }, [clearAutoplayResumeTimeout, clearTransitionFallback, setTransitionState, sliderSlides.length]);
 
   useEffect(() => () => {
     cancelDragPaint();
+    clearAutoplayResumeTimeout();
     clearTransitionFallback();
-  }, [cancelDragPaint, clearTransitionFallback]);
+  }, [cancelDragPaint, clearAutoplayResumeTimeout, clearTransitionFallback]);
 
   const scheduleDragPaint = useCallback(() => {
     if (dragFrameRef.current) return;
@@ -2917,20 +3371,27 @@ function HeroSlider({ slides, navigate, userPreferences }) {
       dragOffsetRef.current = 0;
       dragOriginOffsetRef.current = 0;
       applyTrackTransform(false, 0);
+      scheduleAutoplayResume();
       return;
     }
 
     if (direction === 0) {
-      beginTrackTransition(currentIndexRef.current, { force: true });
+      beginTrackTransition(clampTrackIndex(currentIndexRef.current), { force: true });
+      scheduleAutoplayResume();
       return;
     }
 
-    beginTrackTransition(currentIndexRef.current + direction);
-  }, [applyTrackTransform, beginTrackTransition, cancelDragPaint, sliderSlides.length]);
+    const baseIndex = currentIndexRef.current <= minLoopTrackIndex || currentIndexRef.current >= maxLoopTrackIndex
+      ? normalizeTrackIndex(currentIndexRef.current)
+      : currentIndexRef.current;
+    beginTrackTransition(baseIndex + direction);
+    scheduleAutoplayResume();
+  }, [applyTrackTransform, beginTrackTransition, cancelDragPaint, clampTrackIndex, maxLoopTrackIndex, minLoopTrackIndex, normalizeTrackIndex, scheduleAutoplayResume, sliderSlides.length]);
 
   const handlePointerDown = (event) => {
     if (sliderSlides.length <= 1) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    pauseAutoplay();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     cancelDragPaint();
     const slideWidth = trackRef.current?.getBoundingClientRect().width || window.innerWidth;
@@ -2942,6 +3403,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
       transitionTokenRef.current += 1;
       setTransitionState(false);
     }
+    currentIndexRef.current = clampTrackIndex(currentIndexRef.current);
     isDraggingRef.current = true;
     dragPointerIdRef.current = event.pointerId;
     dragOriginOffsetRef.current = interruptedOffset;
@@ -2991,14 +3453,11 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     finalizeTransition();
   };
 
-  const activeDotIndex = sliderSlides.length <= 1 ? 0 : 
-    currentIndex === 0 ? sliderSlides.length - 1 :
-    currentIndex === extendedSlides.length - 1 ? 0 :
-    currentIndex - 1;
+  const activeDotIndex = sliderSlides.length <= 1 ? 0 : normalizeTrackIndex(currentIndex) - realTrackStartIndex;
 
   const handleDotSelect = (dotIndex) => {
     if (isTransitioningRef.current || isDraggingRef.current || dotIndex === activeDotIndex) return;
-    beginTrackTransition(dotIndex + 1);
+    beginTrackTransition(dotIndex + 2);
   };
 
   return (
@@ -3011,7 +3470,7 @@ function HeroSlider({ slides, navigate, userPreferences }) {
             display: 'flex',
             width: '100%',
             transform: `translate3d(calc(-${currentIndex * 100}% + ${dragOffsetRef.current}px), 0, 0)`,
-            transition: isTransitioning && dragOffsetRef.current === 0 && !isDraggingState ? 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+            transition: isTransitioning && dragOffsetRef.current === 0 && !isDraggingState ? 'transform 450ms cubic-bezier(0.25, 1, 0.5, 1)' : 'none',
             willChange: 'transform',
             touchAction: 'pan-y',
             cursor: isDraggingState ? 'grabbing' : 'grab'
@@ -3027,9 +3486,9 @@ function HeroSlider({ slides, navigate, userPreferences }) {
           const displayTitle = getPreferredAnimeTitle(slide, userPreferences);
           const audio = Array.isArray(slide.audio) ? slide.audio : ['sub', 'dub'];
           const heroBadges = [
-            ...(audio.includes('sub') ? [{ key: 'sub', tone: 'sub', label: 'CC' }] : []),
-            ...(audio.includes('dub') ? [{ key: 'dub', tone: 'dub', label: 'MIC' }] : []),
             { key: 'quality', tone: 'neutral', label: slideMeta.quality || 'HD' },
+            ...(audio.includes('sub') ? [{ key: 'sub', tone: 'neutral', label: 'CC', fontClass: 'font-bold' }] : []),
+            ...(audio.includes('dub') ? [{ key: 'dub', tone: 'neutral', label: <><Mic size={14} style={{ marginRight: 2 }} />{slide.episodes ?? '?'}</> }] : []),
             { key: 'rating', tone: 'neutral', label: slideMeta.ageRating || 'PG-13' },
             { key: 'year', tone: 'neutral', label: String(slide.year || '') },
             { key: 'type', tone: 'neutral', label: slide.type || 'TV' }
@@ -3053,30 +3512,32 @@ function HeroSlider({ slides, navigate, userPreferences }) {
               <div className="heroArtworkPane" />
               <div className="heroGradientOverlay" />
               <div className="heroContent" style={{ userSelect: isDraggingState ? 'none' : 'text', WebkitUserSelect: isDraggingState ? 'none' : 'text' }}>
-                <div className="heroCopyStack">
-                  <h1 className="heroTitle" title={displayTitle}>{displayTitle}</h1>
-                  <div className="metaRow heroMetaRow">
-                    {heroBadges.map(({ key: badgeKey, tone, label }) => (
-                      <span key={badgeKey} className={`heroMetaBadge ${tone}`}>
-                        <span>{label}</span>
-                      </span>
-                    ))}
+                <div className="heroContentLayout">
+                  <div className="heroCopyStack">
+                    <h1 className="heroTitle" title={displayTitle}>{displayTitle}</h1>
+                    <div className="metaRow heroMetaRow">
+                      {heroBadges.map(({ key: badgeKey, tone, label, fontClass }) => (
+                        <span key={badgeKey} className={`heroMetaBadge ${tone} ${fontClass || ''}`}>
+                          <span>{label}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <p className="heroDescription" title={slide.description}>{slide.description || 'No synopsis available right now.'}</p>
                   </div>
-                  <p className="heroDescription" title={slide.description}>{slide.description || 'No synopsis available right now.'}</p>
-                </div>
-                <div className="heroActions">
-                  <button
-                    className="primaryButton ovalButton"
-                    onClick={(e) => { e.stopPropagation(); navigate({ name: 'watch', id: slide.id, episode: 1 }); }}
-                  >
-                    <Play size={18} fill="currentColor" /> Watch Now
-                  </button>
-                  <button
-                    className="ghostButton ovalButton"
-                    onClick={(e) => { e.stopPropagation(); navigate({ name: 'detail', id: slide.id }); }}
-                  >
-                    <Clapperboard size={18} /> Details
-                  </button>
+                  <div className="heroActions">
+                    <button
+                      className="primaryButton ovalButton watchNowStatic heroWatchButton"
+                      onClick={(e) => { e.stopPropagation(); navigate({ name: 'watch', id: slide.id, episode: 1 }); }}
+                    >
+                      <Play size={18} fill="currentColor" /> Watch Now
+                    </button>
+                    <button
+                      className="ghostButton ovalButton heroDetailsButton"
+                      onClick={(e) => { e.stopPropagation(); navigate({ name: 'detail', id: slide.id }); }}
+                    >
+                      Details
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -3550,13 +4011,25 @@ function AnimeRail({ title, items, navigate, watchlist, setWatchlistCategory, us
   );
 }
 
-function WatchPage({ anime, animeId, episodeNumber, navigate, updateProgress, watchlist, setWatchlistCategory, userPreferences }) {
+function WatchPage({ anime, animeId, episodeNumber, navigate, updateProgress, watchlist, setWatchlistCategory, userPreferences, episodesByAnime }) {
   const item = anime.find((show) => show.id === animeId) || anime[0];
-  const episodes = seedEpisodes[item.id] || [];
+  const episodes = episodesByAnime[item.id] || [];
   const episode = episodes.find((ep) => ep.number === episodeNumber) || episodes[0];
   const recommended = [...anime].filter((show) => show.id !== item.id).sort((a, b) => b.rating - a.rating).slice(0, 8);
   const displayTitle = getPreferredAnimeTitle(item, userPreferences);
-  const initialLanguage = useMemo(() => resolvePreferredLanguage(item, userPreferences), [item, userPreferences]);
+  const initialLanguage = useMemo(() => {
+    const available = new Set([
+      ...(Array.isArray(item?.audio) ? item.audio : ['sub', 'dub']),
+      ...Object.keys(getEpisodePlayerSources(episode))
+    ]);
+    const order =
+      userPreferences?.autoSelectLanguage === 'Only Dub'
+        ? ['dub', 'sub', 'hindi']
+        : userPreferences?.autoSelectLanguage === 'Only Sub'
+          ? ['sub', 'dub', 'hindi']
+          : ['dub', 'sub', 'hindi'];
+    return order.find((track) => available.has(track)) || Object.keys(getEpisodePlayerSources(episode))[0] || 'sub';
+  }, [episode, item, userPreferences]);
   const [episodeQuery, setEpisodeQuery] = useState('');
   const [rangeStart, setRangeStart] = useState(1);
 
@@ -3581,6 +4054,14 @@ function WatchPage({ anime, animeId, episodeNumber, navigate, updateProgress, wa
     .filter((ep) => `${ep.number} ${ep.title}`.toLowerCase().includes(episodeQuery.toLowerCase()));
 
   const compactEpisodes = episodes.length > 26;
+
+  if (!item || !episode) {
+    return (
+      <section className="pageShell">
+        <div className="emptyWide">No episodes are available for this anime yet.</div>
+      </section>
+    );
+  }
 
   return (
     <section className="watchPage">
@@ -3618,8 +4099,8 @@ function WatchPage({ anime, animeId, episodeNumber, navigate, updateProgress, wa
       </aside>
       <div className="playerColumn">
         <div className="playerShell">
-          <HakariPlayer 
-            sources={episode.sources}
+            <HakariPlayer
+            sources={getEpisodePlayerSources(episode)}
             initialLanguage={initialLanguage}
             autoPlay={userPreferences.autoPlay}
             userPreferences={userPreferences}
@@ -4958,6 +5439,1199 @@ function HomepageSectionControls({ settings, setSiteSettings }) {
   );
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Unable to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildAnimeDraft(animeItem, libraryGenres, libraryTypes) {
+  return {
+    id: animeItem?.id || '',
+    english: animeItem?.english || animeItem?.title || '',
+    japanese: animeItem?.japanese || '',
+    synonyms: animeItem?.synonyms || '',
+    description: animeItem?.longDescription || animeItem?.description || '',
+    airedDate: formatInputDate(animeItem?.aired || animeItem?.addedAt || animeItem?.updatedAt),
+    premieredSeason: animeItem?.premieredSeason || '',
+    duration: animeItem?.duration || '24m',
+    status: animeItem?.status || 'Ongoing',
+    malScore: animeItem?.malScore || animeItem?.rating || '',
+    genres: Array.isArray(animeItem?.genres) && animeItem.genres.length ? animeItem.genres : libraryGenres.slice(0, 1),
+    type: animeItem?.type || libraryTypes[0] || 'TV',
+    totalEpisodes: animeItem?.episodes || 0,
+    posterImage: animeItem?.image || '',
+    coverImage: animeItem?.coverImage || animeItem?.image || '',
+    ccAvailable: animeItem?.ccAvailable ?? true,
+    dubAvailable: animeItem?.dubAvailable ?? (Array.isArray(animeItem?.audio) ? animeItem.audio.includes('dub') : true)
+  };
+}
+
+function buildEpisodeDraft(episode, animeItem) {
+  return {
+    id: episode?.id || '',
+    number: episode?.number || (animeItem?.episodes || 0) + 1,
+    title: episode?.title || '',
+    thumbnail: episode?.thumbnail || animeItem?.image || heroArt,
+    subVideo: episode?.mediaTracks?.sub?.[0]?.url || episode?.sources?.sub || '',
+    dubVideo: episode?.mediaTracks?.dub?.[0]?.url || episode?.sources?.dub || ''
+  };
+}
+
+function buildBannerDraft(banner, anime) {
+  const linkedAnime = anime.find((item) => item.id === banner?.animeId) || anime[0];
+  return {
+    id: banner?.id || '',
+    animeId: banner?.animeId || linkedAnime?.id || '',
+    title: banner?.title || linkedAnime?.title || '',
+    description: banner?.description || linkedAnime?.description || '',
+    metadata: Array.isArray(banner?.metadata) ? banner.metadata : ['PG-13', 'HD', 'TV', 'Year', 'CC'],
+    image: banner?.image || linkedAnime?.image || heroArt,
+    active: banner?.active !== false
+  };
+}
+
+function AdminConfirmDialog({ state, onClose, onConfirm }) {
+  if (!state) return null;
+  return (
+    <div className="modalBackdrop">
+      <div className="authModal adminConfirmModal">
+        <h2>{state.title}</h2>
+        {state.message ? <p>{state.message}</p> : null}
+        <div className="adminConfirmActions">
+          <button className="ghostButton" onClick={onClose}>No</button>
+          <button className={`primaryButton ${state.tone === 'danger' ? 'dangerButton' : ''}`} onClick={onConfirm}>
+            {state.confirmLabel || 'Yes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminPagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="adminPagination">
+      <button className="ghostButton compact" disabled={page <= 1} onClick={() => onChange(page - 1)}>Previous</button>
+      <span>Page {page} / {totalPages}</span>
+      <button className="ghostButton compact" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Next</button>
+    </div>
+  );
+}
+
+function HakariAdminPage({
+  anime,
+  setAnime,
+  episodesByAnime,
+  setEpisodesByAnime,
+  user,
+  setUser,
+  userDirectory,
+  setUserDirectory,
+  siteSettings,
+  setSiteSettings,
+  searchAnalytics,
+  setSearchAnalytics
+}) {
+  const [tab, setTab] = useState('dashboard');
+  const [confirmState, setConfirmState] = useState(null);
+  const libraryGenres = getLibraryGenres(siteSettings, anime);
+  const libraryTypes = getLibraryTypes(siteSettings, anime);
+  const normalizedSections = normalizeHomepageSections(siteSettings.homepageSections || defaultHomepageSections);
+  const totalEpisodes = Object.values(episodesByAnime).reduce((sum, items) => sum + items.length, 0);
+  const totalViews = anime.reduce((sum, item) => sum + Number(item.views || 0), 0);
+  const activeBanners = normalizeHeroBanners(siteSettings.heroBanners, anime).filter((item) => item.active !== false);
+  const trendingItems = resolveTrendingAnime(anime, siteSettings, 10);
+  const navItems = [
+    ['dashboard', LayoutDashboard, 'Dashboard'],
+    ['anime', Clapperboard, 'View All Anime'],
+    ['hero', Home, 'Hero Section Management'],
+    ['taxonomy', Sparkles, 'Genre & Type'],
+    ['trending', Flame, 'Trending Management'],
+    ['topSearch', Search, 'Top Search Management'],
+    ['homepage', Menu, 'Homepage Sections'],
+    ['users', Users, 'User Management']
+  ];
+
+  const requestConfirm = useCallback((config) => setConfirmState(config), []);
+  const handleConfirm = () => {
+    const action = confirmState?.onConfirm;
+    setConfirmState(null);
+    action?.();
+  };
+
+  return (
+    <section className="adminPage hakariAdminRebuild">
+      <aside className="adminSidebar">
+        <strong>Hakari Admin</strong>
+        <div className="adminSidebarNav">
+          {navItems.map(([id, Icon, label]) => (
+            <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+      <div className="adminContent">
+        <div className="adminTop">
+          <div>
+            <p>{user?.role === 'admin' ? 'Administrator' : 'Content management dashboard'}</p>
+            <h1>{navItems.find(([id]) => id === tab)?.[2] || 'Dashboard'}</h1>
+          </div>
+          <div className="adminTopMeta">
+            <span>{anime.length} anime</span>
+            <span>{totalEpisodes} episodes</span>
+          </div>
+        </div>
+
+        {tab === 'dashboard' && (
+          <div className="hakariAdminStack">
+            <div className="statsGrid adminStatsGrid">
+              <Stat label="Total Anime" value={anime.length} />
+              <Stat label="Total Episodes" value={totalEpisodes} />
+              <Stat label="Total Users" value={userDirectory.length} />
+              <Stat label="Total Genres" value={libraryGenres.length} />
+              <Stat label="Total Types" value={libraryTypes.length} />
+              <Stat label="Total Hero Banners" value={activeBanners.length} />
+              <Stat label="Total Trending Anime" value={trendingItems.length} />
+            </div>
+            <div className="adminInsightGrid">
+              <div className="adminInsightCard">
+                <h3>Homepage Snapshot</h3>
+                <p>{activeBanners.length} active banners, {resolveHomeTopSearches(anime, searchAnalytics, siteSettings.topSearches, MAX_HOME_TOP_SEARCHES).length} top-search entries, and {formatViews(totalViews)} total library views.</p>
+              </div>
+              <div className="adminInsightCard">
+                <h3>Sections Live</h3>
+                <p>{Object.values(normalizedSections).filter((section) => section.enabled !== false).length} homepage sections are currently enabled and saved to browser storage instantly.</p>
+              </div>
+            </div>
+            <div className="adminTable hakariAdminTable">
+              <h3>Recent Anime Updates</h3>
+              {(anime.slice().sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a)).slice(0, 6)).map((item) => (
+                <div key={item.id}>
+                  <span>{getPreferredAnimeTitle(item)}</span>
+                  <span>{item.status}</span>
+                  <span>{formatDateLabel(item.updatedAt || item.aired)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === 'anime' && (
+          <AnimeCatalogManager
+            anime={anime}
+            setAnime={setAnime}
+            episodesByAnime={episodesByAnime}
+            setEpisodesByAnime={setEpisodesByAnime}
+            siteSettings={siteSettings}
+            setSiteSettings={setSiteSettings}
+            setSearchAnalytics={setSearchAnalytics}
+            libraryGenres={libraryGenres}
+            libraryTypes={libraryTypes}
+            requestConfirm={requestConfirm}
+          />
+        )}
+
+        {tab === 'hero' && (
+          <HeroBannerManager
+            anime={anime}
+            siteSettings={siteSettings}
+            setSiteSettings={setSiteSettings}
+            requestConfirm={requestConfirm}
+          />
+        )}
+
+        {tab === 'taxonomy' && (
+          <GenreTypeManager
+            anime={anime}
+            setAnime={setAnime}
+            siteSettings={siteSettings}
+            setSiteSettings={setSiteSettings}
+            requestConfirm={requestConfirm}
+          />
+        )}
+
+        {tab === 'trending' && (
+          <CuratedRankManager
+            title="Trending Management"
+            description="Manage the homepage Trending rail. Drag, rank, add, or remove anime and the homepage will auto-fill remaining slots up to 10 when enough anime exist."
+            anime={anime}
+            limit={10}
+            valueIds={Array.isArray(siteSettings.trending?.rankedIds) ? siteSettings.trending.rankedIds : []}
+            onChangeIds={(rankedIds) => setSiteSettings((current) => ({ ...current, trending: { ...(current.trending || {}), rankedIds } }))}
+            requestConfirm={requestConfirm}
+            rankingLabel="Position"
+          />
+        )}
+
+        {tab === 'topSearch' && (
+          <CuratedRankManager
+            title="Top Search Management"
+            description="Set the exact ranking for the homepage Top Search sidebar. The homepage updates instantly from this ranked list."
+            anime={anime}
+            limit={15}
+            valueIds={normalizeTopSearchSettings(siteSettings.topSearches).rankedIds}
+            onChangeIds={(rankedIds) => setSiteSettings((current) => ({ ...current, topSearches: { ...normalizeTopSearchSettings(current.topSearches), rankedIds } }))}
+            requestConfirm={requestConfirm}
+            rankingLabel="Rank"
+          />
+        )}
+
+        {tab === 'homepage' && (
+          <HomepageSectionsManager
+            sections={normalizedSections}
+            setSiteSettings={setSiteSettings}
+          />
+        )}
+
+        {tab === 'users' && (
+          <UserManagementManager
+            userDirectory={userDirectory}
+            setUserDirectory={setUserDirectory}
+            activeUserEmail={user?.email || ''}
+            setUser={setUser}
+            requestConfirm={requestConfirm}
+          />
+        )}
+      </div>
+      <AdminConfirmDialog state={confirmState} onClose={() => setConfirmState(null)} onConfirm={handleConfirm} />
+    </section>
+  );
+}
+
+function AnimeCatalogManager({
+  anime,
+  setAnime,
+  episodesByAnime,
+  setEpisodesByAnime,
+  siteSettings,
+  setSiteSettings,
+  setSearchAnalytics,
+  libraryGenres,
+  libraryTypes,
+  requestConfirm
+}) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedAnimeId, setSelectedAnimeId] = useState(anime[0]?.id || null);
+  const [draft, setDraft] = useState(() => buildAnimeDraft(anime[0], libraryGenres, libraryTypes));
+  const [editingEpisodeId, setEditingEpisodeId] = useState('');
+  const [episodeDraft, setEpisodeDraft] = useState(() => buildEpisodeDraft(null, anime[0]));
+  const selectedAnime = anime.find((item) => item.id === selectedAnimeId) || null;
+  const selectedEpisodes = selectedAnime ? (episodesByAnime[selectedAnime.id] || []) : [];
+  const filteredAnime = anime.filter((item) =>
+    [item.title, item.english, item.japanese, item.type, item.status]
+      .join(' ')
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+  const pageSize = 8;
+  const totalPages = Math.max(1, Math.ceil(filteredAnime.length / pageSize));
+  const pagedAnime = filteredAnime.slice((page - 1) * pageSize, page * pageSize);
+  const compactEpisodeLayout = selectedEpisodes.length > 27;
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    if (selectedAnime) {
+      setDraft(buildAnimeDraft(selectedAnime, libraryGenres, libraryTypes));
+      setEditingEpisodeId('');
+      setEpisodeDraft(buildEpisodeDraft(null, selectedAnime));
+      return;
+    }
+    setDraft(buildAnimeDraft(null, libraryGenres, libraryTypes));
+  }, [libraryGenres, libraryTypes, selectedAnime]);
+
+  useEffect(() => {
+    if (selectedAnimeId && !anime.some((item) => item.id === selectedAnimeId)) {
+      setSelectedAnimeId(anime[0]?.id || null);
+    }
+  }, [anime, selectedAnimeId]);
+
+  const openCreate = () => {
+    setSelectedAnimeId(null);
+    setDraft(buildAnimeDraft(null, libraryGenres, libraryTypes));
+    setEditingEpisodeId('');
+    setEpisodeDraft(buildEpisodeDraft(null, anime[0] || { episodes: 0, image: heroArt }));
+  };
+
+  const syncLibrarySettings = (genresToMerge, typeToMerge) => {
+    setSiteSettings((current) => ({
+      ...current,
+      library: {
+        genres: [...new Set([...getLibraryGenres(current, anime), ...genresToMerge])],
+        types: [...new Set([...getLibraryTypes(current, anime), typeToMerge].filter(Boolean))]
+      },
+      genres: {
+        ...(current.genres || {}),
+        ...Object.fromEntries(genresToMerge.map((genre) => [genre, true]))
+      },
+      types: {
+        ...(current.types || {}),
+        ...(typeToMerge ? { [typeToMerge]: true } : {})
+      }
+    }));
+  };
+
+  const handleSaveAnime = () => {
+    const englishName = draft.english.trim();
+    const description = draft.description.trim();
+    if (!englishName || !description) return;
+    const nextId = selectedAnime?.id || draft.id || slugify(englishName);
+    const nextScore = Number(draft.malScore || 0);
+    const nextEpisodes = Math.max(0, Number(draft.totalEpisodes || 0));
+    const nextAnime = {
+      ...selectedAnime,
+      id: nextId,
+      title: englishName,
+      english: englishName,
+      japanese: draft.japanese.trim(),
+      synonyms: draft.synonyms.trim(),
+      description,
+      longDescription: description,
+      aired: draft.airedDate || selectedAnime?.aired || new Date().toISOString().slice(0, 10),
+      premieredSeason: draft.premieredSeason.trim(),
+      duration: draft.duration.trim() || '24m',
+      status: draft.status,
+      malScore: nextScore,
+      rating: nextScore,
+      genres: draft.genres,
+      type: draft.type,
+      episodes: nextEpisodes,
+      image: draft.posterImage || selectedAnime?.image || heroArt,
+      coverImage: draft.coverImage || draft.posterImage || selectedAnime?.coverImage || selectedAnime?.image || heroArt,
+      ccAvailable: draft.ccAvailable !== false,
+      dubAvailable: !!draft.dubAvailable,
+      audio: ['sub', ...(draft.dubAvailable ? ['dub'] : [])],
+      year: draft.airedDate ? new Date(draft.airedDate).getFullYear() : selectedAnime?.year || new Date().getFullYear(),
+      views: selectedAnime?.views || 0,
+      studio: selectedAnime?.studio || 'Hakari Studio',
+      ageRating: selectedAnime?.ageRating || 'PG-13',
+      quality: selectedAnime?.quality || 'HD',
+      producer: selectedAnime?.producer || 'Hakari Pictures',
+      color: selectedAnime?.color || 'linear-gradient(135deg, #7c3aed, #09090b 48%, #2563eb)',
+      tags: selectedAnime?.tags || [],
+      addedAt: selectedAnime?.addedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setAnime((items) => (
+      selectedAnime
+        ? items.map((item) => (item.id === selectedAnime.id ? nextAnime : item))
+        : [nextAnime, ...items]
+    ));
+
+    setEpisodesByAnime((current) => {
+      const existing = (current[nextId] || []).map((entry, index) => normalizeEpisodeEntry(entry, nextAnime, index + 1)).filter(Boolean);
+      const next = [...existing];
+      if (nextEpisodes > next.length) {
+        for (let index = next.length + 1; index <= nextEpisodes; index += 1) {
+          next.push(createEpisodeRecord(nextAnime, index, { includeDub: draft.dubAvailable }));
+        }
+      }
+      const trimmed = next.slice(0, nextEpisodes).map((entry, index) => normalizeEpisodeEntry({ ...entry, number: index + 1 }, nextAnime, index + 1));
+      return {
+        ...current,
+        [nextId]: trimmed
+      };
+    });
+
+    syncLibrarySettings(draft.genres, draft.type);
+    setSearchAnalytics((current) => ({ ...current, [nextId]: Number(current[nextId] || 0) }));
+    setSelectedAnimeId(nextId);
+  };
+
+  const handleDeleteAnime = (animeId) => {
+    const target = anime.find((item) => item.id === animeId);
+    if (!target) return;
+    requestConfirm({
+      title: 'Delete Anime?',
+      message: `Delete ${getPreferredAnimeTitle(target)} and all of its episodes permanently?`,
+      confirmLabel: 'Yes',
+      tone: 'danger',
+      onConfirm: () => {
+        setAnime((items) => items.filter((item) => item.id !== animeId));
+        setEpisodesByAnime((current) => {
+          const next = { ...current };
+          delete next[animeId];
+          return next;
+        });
+        setSearchAnalytics((current) => {
+          const next = { ...current };
+          delete next[animeId];
+          return next;
+        });
+        setSiteSettings((current) => ({
+          ...current,
+          heroBanners: normalizeHeroBanners(current.heroBanners || [], anime).filter((banner) => banner.animeId !== animeId),
+          trending: {
+            ...(current.trending || {}),
+            rankedIds: (current.trending?.rankedIds || []).filter((id) => id !== animeId)
+          },
+          topSearches: {
+            ...normalizeTopSearchSettings(current.topSearches),
+            rankedIds: normalizeTopSearchSettings(current.topSearches).rankedIds.filter((id) => id !== animeId)
+          }
+        }));
+      }
+    });
+  };
+
+  const handleSaveEpisode = () => {
+    if (!selectedAnime) return;
+    const episodeNumber = Math.max(1, Number(episodeDraft.number || 1));
+    const nextEpisode = normalizeEpisodeEntry(
+      {
+        id: editingEpisodeId || `${selectedAnime.id}-ep-${episodeNumber}`,
+        number: episodeNumber,
+        title: episodeDraft.title.trim() || `Episode ${episodeNumber}`,
+        thumbnail: episodeDraft.thumbnail || selectedAnime.image || heroArt,
+        mediaTracks: {
+          ...(episodeDraft.subVideo ? { sub: [{ quality: '1080p', url: episodeDraft.subVideo }] } : {}),
+          ...(episodeDraft.dubVideo ? { dub: [{ quality: '1080p', url: episodeDraft.dubVideo }] } : {})
+        }
+      },
+      selectedAnime,
+      episodeNumber
+    );
+
+    setEpisodesByAnime((current) => {
+      const existing = [...(current[selectedAnime.id] || [])];
+      const next = editingEpisodeId
+        ? existing.map((entry) => (entry.id === editingEpisodeId ? nextEpisode : entry))
+        : [...existing, nextEpisode];
+      const normalized = next
+        .sort((a, b) => a.number - b.number)
+        .map((entry, index) => normalizeEpisodeEntry({ ...entry, number: index + 1 }, selectedAnime, index + 1));
+      return {
+        ...current,
+        [selectedAnime.id]: normalized
+      };
+    });
+    setAnime((items) => items.map((item) => (item.id === selectedAnime.id ? { ...item, episodes: Math.max(selectedEpisodes.length + (editingEpisodeId ? 0 : 1), episodeNumber), updatedAt: new Date().toISOString() } : item)));
+    setEditingEpisodeId('');
+    setEpisodeDraft(buildEpisodeDraft(null, selectedAnime));
+  };
+
+  const startEditEpisode = (episode) => {
+    setEditingEpisodeId(episode.id);
+    setEpisodeDraft(buildEpisodeDraft(episode, selectedAnime));
+  };
+
+  const handleDeleteEpisode = (episode) => {
+    if (!selectedAnime) return;
+    requestConfirm({
+      title: 'Delete Episode?',
+      message: `Delete Episode ${episode.number} from ${getPreferredAnimeTitle(selectedAnime)} permanently?`,
+      confirmLabel: 'Yes',
+      tone: 'danger',
+      onConfirm: () => {
+        setEpisodesByAnime((current) => {
+          const remaining = (current[selectedAnime.id] || [])
+            .filter((entry) => entry.id !== episode.id)
+            .map((entry, index) => normalizeEpisodeEntry({ ...entry, number: index + 1 }, selectedAnime, index + 1));
+          return {
+            ...current,
+            [selectedAnime.id]: remaining
+          };
+        });
+        setAnime((items) => items.map((item) => (item.id === selectedAnime.id ? { ...item, episodes: Math.max(0, item.episodes - 1), updatedAt: new Date().toISOString() } : item)));
+      }
+    });
+  };
+
+  return (
+    <div className="hakariAdminStack">
+      <div className="adminToolbar">
+        <input
+          className="adminSearchInput"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setPage(1);
+          }}
+          placeholder="Search anime..."
+        />
+        <button className="primaryButton compact" onClick={openCreate}><Plus size={16} /> Add New Anime</button>
+      </div>
+      <div className="adminSplitLayout">
+        <div className="adminSectionCard">
+          <div className="adminSectionHeader">
+            <div>
+              <h3>Anime Library</h3>
+              <p>Poster, type, status, and episode count for every anime currently on the site.</p>
+            </div>
+            <span>{filteredAnime.length} results</span>
+          </div>
+          <div className="adminAnimeGrid">
+            {pagedAnime.map((item) => (
+              <button key={item.id} className={`adminAnimeCard ${selectedAnimeId === item.id ? 'active' : ''}`} onClick={() => setSelectedAnimeId(item.id)}>
+                <img src={item.image || heroArt} alt={getPreferredAnimeTitle(item)} />
+                <div>
+                  <strong>{getPreferredAnimeTitle(item)}</strong>
+                  <small>{item.type} • {item.status}</small>
+                  <span>{item.episodes} episodes</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <AdminPagination page={page} totalPages={totalPages} onChange={setPage} />
+        </div>
+
+        <div className="adminSectionCard adminDetailPanel">
+          <div className="adminSectionHeader">
+            <div>
+              <h3>{selectedAnime ? 'Anime Management Page' : 'Add New Anime'}</h3>
+              <p>Strictly management only. Public watch/watchlist/recommendation UI is excluded here.</p>
+            </div>
+            {selectedAnime ? (
+              <button className="ghostButton compact" onClick={() => handleDeleteAnime(selectedAnime.id)}><Trash2 size={14} /> Delete Anime</button>
+            ) : null}
+          </div>
+          <div className="adminMediaPreviewRow">
+            <div className="adminMediaPreview">
+              <img src={draft.posterImage || heroArt} alt="Poster preview" />
+              <span>Poster</span>
+            </div>
+            <div className="adminMediaPreview wide">
+              <img src={draft.coverImage || draft.posterImage || heroArt} alt="Cover preview" />
+              <span>Cover</span>
+            </div>
+          </div>
+          <div className="adminFormGrid">
+            <label>English Name<input value={draft.english} onChange={(event) => setDraft((current) => ({ ...current, english: event.target.value }))} /></label>
+            <label>Japanese Name<input value={draft.japanese} onChange={(event) => setDraft((current) => ({ ...current, japanese: event.target.value }))} /></label>
+            <label>Synonyms<input value={draft.synonyms} onChange={(event) => setDraft((current) => ({ ...current, synonyms: event.target.value }))} /></label>
+            <label>Aired Date<input type="date" value={draft.airedDate} onChange={(event) => setDraft((current) => ({ ...current, airedDate: event.target.value }))} /></label>
+            <label>Premiered Season<input value={draft.premieredSeason} onChange={(event) => setDraft((current) => ({ ...current, premieredSeason: event.target.value }))} /></label>
+            <label>Duration<input value={draft.duration} onChange={(event) => setDraft((current) => ({ ...current, duration: event.target.value }))} placeholder="24m" /></label>
+            <label>Status
+              <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                <option>Ongoing</option>
+                <option>Completed</option>
+                <option>Upcoming</option>
+              </select>
+            </label>
+            <label>MAL Score<input type="number" step="0.01" value={draft.malScore} onChange={(event) => setDraft((current) => ({ ...current, malScore: event.target.value }))} /></label>
+            <label>Type
+              <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value }))}>
+                {libraryTypes.map((type) => <option key={type}>{type}</option>)}
+              </select>
+            </label>
+            <label>Total Episodes<input type="number" min="0" value={draft.totalEpisodes} onChange={(event) => setDraft((current) => ({ ...current, totalEpisodes: event.target.value }))} /></label>
+            <label>Poster Image Upload
+              <input
+                type="file"
+                accept="image/*"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const value = await fileToDataUrl(file);
+                  setDraft((current) => ({ ...current, posterImage: value }));
+                }}
+              />
+            </label>
+            <label>Cover Image Upload
+              <input
+                type="file"
+                accept="image/*"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  const value = await fileToDataUrl(file);
+                  setDraft((current) => ({ ...current, coverImage: value }));
+                }}
+              />
+            </label>
+          </div>
+          <label className="adminTextareaField">Description<textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+          <div className="adminChipGroup">
+            {libraryGenres.map((genre) => (
+              <button
+                key={genre}
+                className={draft.genres.includes(genre) ? 'active' : ''}
+                onClick={() => setDraft((current) => ({
+                  ...current,
+                  genres: current.genres.includes(genre)
+                    ? current.genres.filter((entry) => entry !== genre)
+                    : [...current.genres, genre]
+                }))}
+              >
+                {genre}
+              </button>
+            ))}
+          </div>
+          <div className="adminToggleRow">
+            <label><input type="checkbox" checked={draft.ccAvailable} onChange={(event) => setDraft((current) => ({ ...current, ccAvailable: event.target.checked }))} /> CC Available</label>
+            <label><input type="checkbox" checked={draft.dubAvailable} onChange={(event) => setDraft((current) => ({ ...current, dubAvailable: event.target.checked }))} /> Dub Available</label>
+          </div>
+          <div className="adminActionRow">
+            {selectedAnime ? <button className="ghostButton" onClick={() => setDraft(buildAnimeDraft(selectedAnime, libraryGenres, libraryTypes))}>Edit Details</button> : null}
+            <button className="primaryButton" onClick={handleSaveAnime}>Save Changes</button>
+          </div>
+
+          {selectedAnime ? (
+            <div className="adminEpisodesSection">
+              <div className="adminSectionHeader">
+                <div>
+                  <h3>Episode Management</h3>
+                  <p>{selectedEpisodes.length} saved episodes. Layout switches automatically when the list grows beyond 27.</p>
+                </div>
+                <button className="primaryButton compact" onClick={() => { setEditingEpisodeId(''); setEpisodeDraft(buildEpisodeDraft(null, selectedAnime)); }}><Plus size={16} /> Add Episode</button>
+              </div>
+
+              <div className="adminEpisodeForm">
+                <label>Episode Number<input type="number" min="1" value={episodeDraft.number} onChange={(event) => setEpisodeDraft((current) => ({ ...current, number: event.target.value }))} /></label>
+                <label>Episode Name<input value={episodeDraft.title} onChange={(event) => setEpisodeDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+                <label>Thumbnail
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      const value = await fileToDataUrl(file);
+                      setEpisodeDraft((current) => ({ ...current, thumbnail: value }));
+                    }}
+                  />
+                </label>
+                <label>Sub / CC Video Upload
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      const value = await fileToDataUrl(file);
+                      setEpisodeDraft((current) => ({ ...current, subVideo: value }));
+                    }}
+                  />
+                </label>
+                <label>Dub Video Upload
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      const value = await fileToDataUrl(file);
+                      setEpisodeDraft((current) => ({ ...current, dubVideo: value }));
+                    }}
+                  />
+                </label>
+                <div className="adminActionRow">
+                  {editingEpisodeId ? <button className="ghostButton" onClick={() => { setEditingEpisodeId(''); setEpisodeDraft(buildEpisodeDraft(null, selectedAnime)); }}>Cancel Edit</button> : null}
+                  <button className="primaryButton" onClick={handleSaveEpisode}>Save Episode</button>
+                </div>
+              </div>
+
+              <div className={compactEpisodeLayout ? 'adminEpisodeGrid' : 'adminEpisodeRowList'}>
+                {selectedEpisodes.map((episode) => (
+                  <div key={episode.id} className="adminEpisodeCard">
+                    <strong>Episode {episode.number}</strong>
+                    <p>{episode.title}</p>
+                    <div className="adminEpisodeActions">
+                      <button className="ghostButton compact" onClick={() => startEditEpisode(episode)}>Edit Episode</button>
+                      <button className="ghostButton compact" onClick={() => handleDeleteEpisode(episode)}>Delete Episode</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HeroBannerManager({ anime, siteSettings, setSiteSettings, requestConfirm }) {
+  const [selectedBannerId, setSelectedBannerId] = useState('');
+  const banners = normalizeHeroBanners(siteSettings.heroBanners, anime);
+  const selectedBanner = banners.find((item) => item.id === selectedBannerId) || null;
+  const [draft, setDraft] = useState(() => buildBannerDraft(banners[0], anime));
+  const metadataOptions = ['PG-13', 'HD', 'TV', 'Movie', 'Year', 'CC', 'Dub'];
+
+  useEffect(() => {
+    setDraft(buildBannerDraft(selectedBanner, anime));
+  }, [anime, selectedBanner]);
+
+  const saveBanner = () => {
+    const nextBanner = {
+      id: selectedBanner?.id || `hero-banner-${Date.now()}`,
+      animeId: draft.animeId,
+      title: draft.title.trim(),
+      description: draft.description.trim(),
+      metadata: draft.metadata,
+      image: draft.image || heroArt,
+      active: draft.active !== false,
+      order: selectedBanner?.order || banners.length + 1
+    };
+    setSiteSettings((current) => {
+      const currentBanners = normalizeHeroBanners(current.heroBanners || [], anime);
+      const nextBanners = selectedBanner
+        ? currentBanners.map((banner) => (banner.id === selectedBanner.id ? nextBanner : banner))
+        : [...currentBanners, nextBanner];
+      return {
+        ...current,
+        heroBanners: nextBanners
+      };
+    });
+    setSelectedBannerId(nextBanner.id);
+  };
+
+  const deleteBanner = (banner) => {
+    requestConfirm({
+      title: 'Delete Banner?',
+      message: `Remove the hero banner "${banner.title}"?`,
+      confirmLabel: 'Yes',
+      tone: 'danger',
+      onConfirm: () => {
+        setSiteSettings((current) => ({
+          ...current,
+          heroBanners: normalizeHeroBanners(current.heroBanners || [], anime).filter((item) => item.id !== banner.id)
+        }));
+        if (selectedBannerId === banner.id) setSelectedBannerId('');
+      }
+    });
+  };
+
+  return (
+    <div className="adminSplitLayout">
+      <div className="adminSectionCard">
+        <div className="adminSectionHeader">
+          <div>
+            <h3>Active Hero Banners</h3>
+            <p>Every saved banner feeds the homepage hero slider automatically.</p>
+          </div>
+          <button className="primaryButton compact" onClick={() => { setSelectedBannerId(''); setDraft(buildBannerDraft(null, anime)); }}><Plus size={16} /> Add Banner</button>
+        </div>
+        <div className="adminBannerList">
+          {banners.map((banner) => (
+            <button key={banner.id} className={`adminBannerRow ${selectedBannerId === banner.id ? 'active' : ''}`} onClick={() => setSelectedBannerId(banner.id)}>
+              <img src={banner.image || heroArt} alt={banner.title} />
+              <div>
+                <strong>{banner.title}</strong>
+                <p>{banner.description}</p>
+              </div>
+              <span>{banner.active !== false ? 'Active' : 'Hidden'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="adminSectionCard">
+        <div className="adminSectionHeader">
+          <div>
+            <h3>{selectedBanner ? 'Edit Banner' : 'Add Banner'}</h3>
+            <p>Banner updates save instantly to the hero slider database.</p>
+          </div>
+          {selectedBanner ? <button className="ghostButton compact" onClick={() => deleteBanner(selectedBanner)}><Trash2 size={14} /> Delete Banner</button> : null}
+        </div>
+        <div className="adminMediaPreview wide">
+          <img src={draft.image || heroArt} alt="Banner preview" />
+          <span>Banner Preview</span>
+        </div>
+        <div className="adminFormGrid">
+          <label>Banner Title<input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+          <label>Linked Anime
+            <select value={draft.animeId} onChange={(event) => setDraft((current) => ({ ...current, animeId: event.target.value }))}>
+              {anime.map((item) => <option key={item.id} value={item.id}>{getPreferredAnimeTitle(item)}</option>)}
+            </select>
+          </label>
+          <label>Banner Image Upload
+            <input
+              type="file"
+              accept="image/*"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                const value = await fileToDataUrl(file);
+                setDraft((current) => ({ ...current, image: value }));
+              }}
+            />
+          </label>
+        </div>
+        <label className="adminTextareaField">Banner Description<textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+        <div className="adminChipGroup">
+          {metadataOptions.map((item) => (
+            <button
+              key={item}
+              className={draft.metadata.includes(item) ? 'active' : ''}
+              onClick={() => setDraft((current) => ({
+                ...current,
+                metadata: current.metadata.includes(item)
+                  ? current.metadata.filter((entry) => entry !== item)
+                  : [...current.metadata, item]
+              }))}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        <div className="adminToggleRow">
+          <label><input type="checkbox" checked={draft.active} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.checked }))} /> Active Banner</label>
+        </div>
+        <div className="adminActionRow">
+          <button className="primaryButton" onClick={saveBanner}>Save Banner</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GenreTypeManager({ anime, setAnime, siteSettings, setSiteSettings, requestConfirm }) {
+  const [tab, setTab] = useState('genre');
+  const [name, setName] = useState('');
+  const items = tab === 'genre' ? getLibraryGenres(siteSettings, anime) : getLibraryTypes(siteSettings, anime);
+
+  const addItem = () => {
+    const trimmed = name.trim();
+    if (!trimmed || items.includes(trimmed)) return;
+    setSiteSettings((current) => ({
+      ...current,
+      library: {
+        genres: tab === 'genre' ? [...getLibraryGenres(current, anime), trimmed] : getLibraryGenres(current, anime),
+        types: tab === 'type' ? [...getLibraryTypes(current, anime), trimmed] : getLibraryTypes(current, anime)
+      },
+      genres: tab === 'genre' ? { ...(current.genres || {}), [trimmed]: true } : current.genres,
+      types: tab === 'type' ? { ...(current.types || {}), [trimmed]: true } : current.types
+    }));
+    setName('');
+  };
+
+  const removeItem = (value) => {
+    requestConfirm({
+      title: tab === 'genre' ? 'Delete Genre?' : 'Delete Type?',
+      message: tab === 'genre'
+        ? `Delete ${value} and remove it from all anime records?`
+        : `Delete ${value} and replace it on existing anime with ${getLibraryTypes(siteSettings, anime).find((item) => item !== value) || 'TV'}?`,
+      confirmLabel: 'Yes',
+      tone: 'danger',
+      onConfirm: () => {
+        setSiteSettings((current) => {
+          const nextGenres = getLibraryGenres(current, anime).filter((item) => item !== value);
+          const nextTypes = getLibraryTypes(current, anime).filter((item) => item !== value);
+          const nextGenreVisibility = { ...(current.genres || {}) };
+          const nextTypeVisibility = { ...(current.types || {}) };
+          delete nextGenreVisibility[value];
+          delete nextTypeVisibility[value];
+          return {
+            ...current,
+            library: {
+              genres: tab === 'genre' ? nextGenres : getLibraryGenres(current, anime),
+              types: tab === 'type' ? nextTypes : getLibraryTypes(current, anime)
+            },
+            genres: nextGenreVisibility,
+            types: nextTypeVisibility
+          };
+        });
+        setAnime((records) => records.map((item) => (
+          tab === 'genre'
+            ? { ...item, genres: item.genres.filter((entry) => entry !== value) }
+            : { ...item, type: item.type === value ? (getLibraryTypes(siteSettings, anime).find((entry) => entry !== value) || 'TV') : item.type }
+        )));
+      }
+    });
+  };
+
+  return (
+    <div className="hakariAdminStack">
+      <div className="adminTabRow">
+        <button className={tab === 'genre' ? 'active' : ''} onClick={() => setTab('genre')}>Genre</button>
+        <button className={tab === 'type' ? 'active' : ''} onClick={() => setTab('type')}>Type</button>
+      </div>
+      <div className="adminSplitLayout">
+        <div className="adminSectionCard">
+          <div className="adminSectionHeader">
+            <div>
+              <h3>{tab === 'genre' ? 'Genre Management' : 'Type Management'}</h3>
+              <p>{tab === 'genre' ? 'Manage the global genre taxonomy used across admin forms and filters.' : 'Manage the type taxonomy used across anime records.'}</p>
+            </div>
+          </div>
+          <div className="adminToolbar">
+            <input className="adminSearchInput" value={name} onChange={(event) => setName(event.target.value)} placeholder={tab === 'genre' ? 'Genre Name' : 'Type Name'} />
+            <button className="primaryButton compact" onClick={addItem}><Plus size={16} /> Save</button>
+          </div>
+          <div className="adminControlList taxonomyList">
+            {items.map((item) => (
+              <div key={item} className="controlRow">
+                <strong>{item}</strong>
+                <button className="ghostButton compact" onClick={() => removeItem(item)}><Trash2 size={14} /> Delete</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CuratedRankManager({ title, description, anime, limit, valueIds, onChangeIds, requestConfirm, rankingLabel }) {
+  const [query, setQuery] = useState('');
+  const [dragId, setDragId] = useState('');
+  const selectedIds = valueIds.filter((id, index, list) => list.indexOf(id) === index).slice(0, limit);
+  const selectedAnime = selectedIds.map((id) => anime.find((item) => item.id === id)).filter(Boolean);
+  const candidates = anime
+    .filter((item) => !selectedIds.includes(item.id))
+    .filter((item) => [item.title, item.english, item.japanese].join(' ').toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 12);
+
+  const move = (from, to) => {
+    const next = [...selectedIds];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChangeIds(next);
+  };
+
+  const removeItem = (id) => {
+    requestConfirm({
+      title: `Remove ${rankingLabel}?`,
+      message: 'This change saves instantly and updates the homepage ordering.',
+      confirmLabel: 'Yes',
+      tone: 'danger',
+      onConfirm: () => onChangeIds(selectedIds.filter((entry) => entry !== id))
+    });
+  };
+
+  return (
+    <div className="adminSplitLayout">
+      <div className="adminSectionCard">
+        <div className="adminSectionHeader">
+          <div>
+            <h3>{title}</h3>
+            <p>{description}</p>
+          </div>
+          <span>{selectedIds.length}/{limit}</span>
+        </div>
+        <div className="adminControlList">
+          {selectedAnime.map((item, index) => (
+            <div
+              key={item.id}
+              className="topSearchManageRow adminSortableRow"
+              draggable
+              onDragStart={() => setDragId(item.id)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (!dragId || dragId === item.id) return;
+                const from = selectedIds.indexOf(dragId);
+                const to = selectedIds.indexOf(item.id);
+                if (from < 0 || to < 0) return;
+                move(from, to);
+                setDragId('');
+              }}
+            >
+              <div className="topSearchManageMeta">
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <div>
+                  <strong>{getPreferredAnimeTitle(item)}</strong>
+                  <small>{item.type} • {item.status}</small>
+                </div>
+              </div>
+              <div className="topSearchManageActions">
+                <button className="ghostButton compact" disabled={index === 0} onClick={() => move(index, index - 1)}>Up</button>
+                <button className="ghostButton compact" disabled={index === selectedIds.length - 1} onClick={() => move(index, index + 1)}>Down</button>
+                <button className="ghostButton compact" onClick={() => removeItem(item.id)}><Trash2 size={14} /> Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="adminSectionCard">
+        <div className="adminSectionHeader">
+          <div>
+            <h3>Add Anime</h3>
+            <p>Search the library and add anime into the ranked list.</p>
+          </div>
+        </div>
+        <input className="adminSearchInput" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anime..." />
+        <div className="adminControlList">
+          {candidates.map((item) => (
+            <button
+              key={item.id}
+              className="topSearchPickerButton"
+              onClick={() => onChangeIds([...selectedIds, item.id].slice(0, limit))}
+              disabled={selectedIds.length >= limit}
+            >
+              <div>
+                <strong>{getPreferredAnimeTitle(item)}</strong>
+                <small>{item.type} • {item.year}</small>
+              </div>
+              <span>Add</span>
+            </button>
+          ))}
+          {!candidates.length ? <div className="emptyWide">No anime matched this search.</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomepageSectionsManager({ sections, setSiteSettings }) {
+  const editableSections = Object.entries(sections)
+    .filter(([key]) => !['trending', 'topSearches'].includes(key))
+    .sort(([, a], [, b]) => a.order - b.order);
+  const sourceOptions = [
+    ['featured', 'Featured'],
+    ['topAiring', 'Top Airing'],
+    ['latestEpisodes', 'Latest Episodes'],
+    ['mostPopular', 'Most Popular'],
+    ['recentlyAdded', 'Recently Added'],
+    ['trending', 'Trending']
+  ];
+
+  const updateSection = (key, patch) => {
+    setSiteSettings((current) => ({
+      ...current,
+      homepageSections: {
+        ...normalizeHomepageSections(current.homepageSections || defaultHomepageSections),
+        [key]: {
+          ...normalizeHomepageSections(current.homepageSections || defaultHomepageSections)[key],
+          ...patch
+        }
+      }
+    }));
+  };
+
+  return (
+    <div className="adminSectionCard">
+      <div className="adminSectionHeader">
+        <div>
+          <h3>Homepage Sections</h3>
+          <p>Enable or disable sections, change order, pick content source, and set the number of anime shown per section.</p>
+        </div>
+      </div>
+      <div className="homepageSectionAdminList">
+        {editableSections.map(([key, section]) => (
+          <div key={key} className="homepageSectionAdminCard">
+            <div className="homepageSectionAdminTop">
+              <div>
+                <strong>{section.label}</strong>
+                <small>{key}</small>
+              </div>
+              <label><input type="checkbox" checked={section.enabled !== false} onChange={(event) => updateSection(key, { enabled: event.target.checked })} /> Enabled</label>
+            </div>
+            <div className="adminFormGrid compact">
+              <label>Order<input type="number" min="1" value={section.order} onChange={(event) => updateSection(key, { order: Number(event.target.value) || 1 })} /></label>
+              <label>Choose Anime Source
+                <select value={section.source} onChange={(event) => updateSection(key, { source: event.target.value })}>
+                  {sourceOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>Limit Number Of Anime<input type="number" min="1" max="30" value={section.limit} onChange={(event) => updateSection(key, { limit: Number(event.target.value) || 1 })} /></label>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function UserManagementManager({ userDirectory, setUserDirectory, activeUserEmail, setUser, requestConfirm }) {
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [profileUserId, setProfileUserId] = useState('');
+  const filteredUsers = userDirectory.filter((item) =>
+    [item.username, item.email, item.status]
+      .join(' ')
+      .toLowerCase()
+      .includes(query.toLowerCase())
+  );
+  const pageSize = 8;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
+  const profileUser = userDirectory.find((item) => item.id === profileUserId) || null;
+
+  const updateUserStatus = (target, status) => {
+    setUserDirectory((items) => normalizeUserDirectory(items).map((entry) => (
+      entry.id === target.id
+        ? {
+          ...entry,
+          status,
+          bannedAt: status === 'banned' ? new Date().toISOString() : ''
+        }
+        : entry
+    )));
+    if (status === 'banned' && target.email === activeUserEmail) setUser(null);
+  };
+
+  return (
+    <div className="hakariAdminStack">
+      <div className="adminToolbar">
+        <input className="adminSearchInput" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="Search users..." />
+      </div>
+      <div className="adminSectionCard">
+        <div className="adminSectionHeader">
+          <div>
+            <h3>User Management</h3>
+            <p>Ban, unban, or inspect registered users. Banned users cannot log in again.</p>
+          </div>
+          <span>{filteredUsers.length} users</span>
+        </div>
+        <div className="adminUserTable">
+          {pagedUsers.map((item) => (
+            <div key={item.id} className="adminUserRow">
+              <div className="adminUserMeta">
+                {item.avatar ? <img src={item.avatar} alt={item.username} /> : <span>{getAvatarLabel(item)}</span>}
+                <div>
+                  <strong>{item.username}</strong>
+                  <small>{item.email}</small>
+                </div>
+              </div>
+              <span>{formatDateLabel(item.joinDate)}</span>
+              <span className={`adminStatusBadge ${item.status}`}>{item.status === 'banned' ? 'Banned' : 'Active'}</span>
+              <div className="adminUserActions">
+                {item.status === 'banned' ? (
+                  <button className="ghostButton compact" onClick={() => updateUserStatus(item, 'active')}>Unban User</button>
+                ) : (
+                  <button
+                    className="ghostButton compact"
+                    onClick={() => requestConfirm({
+                      title: 'Ban User?',
+                      message: `Ban ${item.username} and revoke their access to Hakari?`,
+                      confirmLabel: 'Yes',
+                      tone: 'danger',
+                      onConfirm: () => updateUserStatus(item, 'banned')
+                    })}
+                  >
+                    Ban User
+                  </button>
+                )}
+                <button className="ghostButton compact" onClick={() => setProfileUserId(item.id)}>View Profile</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <AdminPagination page={page} totalPages={totalPages} onChange={setPage} />
+      </div>
+
+      {profileUser ? (
+        <div className="modalBackdrop" onClick={() => setProfileUserId('')}>
+          <div className="authModal adminUserProfileModal" onClick={(event) => event.stopPropagation()}>
+            <h2>{profileUser.username}</h2>
+            <p>{profileUser.email}</p>
+            <div className="adminProfileFacts">
+              <span>Registration Date: {formatDateLabel(profileUser.joinDate)}</span>
+              <span>Status: {profileUser.status === 'banned' ? 'Banned' : 'Active'}</span>
+              <span>Last Login: {formatDateTimeLabel(profileUser.lastLoginAt)}</span>
+            </div>
+            <button className="primaryButton" onClick={() => setProfileUserId('')}>Close</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SettingsPanel({ tab }) {
   return (
     <div className="settingsPanel">
@@ -4980,21 +6654,39 @@ function SettingsPage() {
   );
 }
 
-function AuthModal({ setUser, onClose }) {
+function AuthModal({ setUser, userDirectory, setUserDirectory, onClose }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const submit = () => {
     setLoading(true);
+    setError('');
     setTimeout(() => {
-      const joinDate = new Date().toLocaleDateString();
-      setUser({
+      const existingUser = normalizeUserDirectory(userDirectory).find((entry) => entry.email === 'viewer@gmail.com');
+      if (existingUser?.status === 'banned') {
+        setLoading(false);
+        setError('This account has been banned and cannot access Hakari.');
+        return;
+      }
+
+      const joinDate = existingUser?.joinDate || new Date().toISOString().slice(0, 10);
+      const nextUser = {
         username: 'Google Viewer',
         email: 'viewer@gmail.com',
-        avatar: '',
+        avatar: existingUser?.avatar || '',
         joinDate,
         verified: true,
         provider: 'google',
-        role: 'member',
+        role: existingUser?.role || 'member',
+        status: 'active',
         preferences: defaultUserPreferences
+      };
+      setUser(nextUser);
+      setUserDirectory((items) => {
+        const normalized = normalizeUserDirectory(items).filter((entry) => entry.email !== nextUser.email);
+        return [
+          normalizeUserRecord({ ...nextUser, lastLoginAt: new Date().toISOString() }),
+          ...normalized
+        ];
       });
       onClose();
     }, 420);
@@ -5007,6 +6699,7 @@ function AuthModal({ setUser, onClose }) {
         </button>
         <h2>Login to Hakari</h2>
         <p>Continue with your Google account. New accounts are created automatically.</p>
+        {error ? <p className="authErrorMessage">{error}</p> : null}
         <button className="googleButton" onClick={submit} disabled={loading}>
           <span>G</span>{loading ? 'Opening Google...' : 'Continue with Google'}
         </button>
