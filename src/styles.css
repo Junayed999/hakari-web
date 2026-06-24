@@ -7606,6 +7606,104 @@ body {
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
 }
 
+.heroContent {
+  text-shadow: none !important;
+  justify-content: flex-start;
+  gap: 0;
+  padding-bottom: 118px;
+}
+
+.heroCopyStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(100%, 40rem);
+}
+
+.heroTitle {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: min(100%, 36rem);
+  font-size: clamp(38px, 5vw, 78px);
+  line-height: 0.98;
+  background: transparent !important;
+  filter: none !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+}
+
+.heroMetaRow {
+  margin: 2px 0 0;
+  gap: 8px;
+}
+
+.heroMetaRow .heroMetaBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: #464154;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+}
+
+.heroMetaRow .heroMetaBadge.sub {
+  background: #7c3aed;
+}
+
+.heroMetaRow .heroMetaBadge.dub {
+  background: #5b5470;
+}
+
+.heroMetaRow .heroMetaBadge.neutral {
+  background: #4a4657;
+}
+
+.heroMetaRow .heroMetaBadge span {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+
+.heroDescription {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 38rem;
+  min-height: calc(1.6em * 3);
+  font-size: 14px;
+  line-height: 1.6;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-overflow: ellipsis;
+}
+
+.heroActions {
+  margin-top: auto;
+  padding-top: 22px;
+  min-height: 56px;
+}
+
+.paginationDots {
+  left: clamp(34px, 7vw, 86px);
+  right: auto;
+  bottom: 30px;
+  max-width: min(44%, 260px);
+  min-height: 18px;
+}
+
 .heroStage.dragging,
 .heroStage.dragging * {
   user-select: none !important;
@@ -7810,9 +7908,123 @@ body {
   transform: none;
 }
 
+.topSearchSidebarPanel {
+  border-radius: 0;
+  background: linear-gradient(180deg, rgba(18, 14, 26, 0.98) 0%, rgba(9, 8, 14, 0.99) 100%);
+  backdrop-filter: none;
+}
+
+.topSearchSidebarList {
+  gap: 0;
+}
+
+.topSearchSidebarCard {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  transition: none;
+}
+
+.topSearchSidebarCard:hover {
+  transform: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.topSearchSidebarRow {
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.topSearchSidebarCard:last-child .topSearchSidebarRow {
+  border-bottom: 0;
+}
+
+.topSearchSidebarThumb {
+  width: 54px;
+  height: 72px;
+  border-radius: 8px;
+}
+
+.topSearchSidebarContent {
+  justify-content: center;
+  gap: 7px;
+}
+
+.topSearchSidebarContent strong {
+  display: -webkit-box;
+  white-space: normal;
+  line-height: 1.24;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.topSearchSidebarMeta {
+  gap: 7px;
+}
+
+.topSearchMetaBadge.sub {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.topSearchMetaBadge.dub {
+  background: #ffffff;
+  color: #17141f;
+}
+
+.topSearchMetaBadge.dub svg {
+  color: #17141f;
+}
+
 @media (max-width: 760px) {
   .hero {
     min-height: 432px;
+  }
+
+  .heroContent {
+    padding-bottom: 92px;
+  }
+
+  .heroCopyStack {
+    width: min(100%, 32rem);
+    gap: 12px;
+  }
+
+  .heroTitle {
+    max-width: min(100%, 28rem);
+    font-size: clamp(30px, 6.6vw, 50px);
+  }
+
+  .heroDescription {
+    max-width: min(100%, 28rem);
+    min-height: calc(1.55em * 3);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .heroActions {
+    padding-top: 18px;
+  }
+
+  .paginationDots {
+    left: 18px;
+    bottom: 20px;
+    max-width: calc(100% - 36px);
+  }
+
+  .topSearchSidebarPanel {
+    padding: 16px 14px 18px;
+    border-radius: 0;
+  }
+
+  .topSearchSidebarRow {
+    gap: 10px;
+    padding: 10px 0;
   }
 }
 
@@ -7831,6 +8043,29 @@ body {
 
   .panelDataRow {
     grid-template-columns: 78px minmax(0, 1fr);
+  }
+
+  .heroContent {
+    padding-bottom: 86px;
+  }
+
+  .heroTitle {
+    max-width: min(100%, 20rem);
+    font-size: clamp(26px, 7.8vw, 38px);
+  }
+
+  .heroMetaRow .heroMetaBadge {
+    min-height: 28px;
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
+  .heroDescription {
+    max-width: min(100%, 20rem);
+    min-height: calc(1.5em * 2);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-line-clamp: 2;
   }
 }
 

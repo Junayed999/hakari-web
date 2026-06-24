@@ -14,7 +14,6 @@ import {
   Clapperboard,
   Clock3,
   ClosedCaption,
-  Film,
   Flame,
   Gauge,
   Heart,
@@ -52,8 +51,7 @@ import {
   Rewind,
   SkipForward,
   SkipBack,
-  Subtitles,
-  Layers
+  Subtitles
 } from 'lucide-react';
 import './styles.css';
 
@@ -2720,17 +2718,23 @@ function AnimeHoverPanel({
 }
 
 function HeroSlider({ slides, navigate, userPreferences }) {
-  const sliderSlides = slides.length ? slides : [seedAnime[0]];
-  const [currentIndex, setCurrentIndex] = useState(1);
+  const sliderSlides = Array.isArray(slides) && slides.filter(Boolean).length ? slides.filter(Boolean) : [seedAnime[0]];
+  const initialTrackIndex = sliderSlides.length <= 1 ? 0 : 1;
+  const [currentIndex, setCurrentIndex] = useState(initialTrackIndex);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isDraggingState, setIsDraggingState] = useState(false);
   const trackRef = useRef(null);
   const dragOffsetRef = useRef(0);
   const isDraggingRef = useRef(false);
+  const isTransitioningRef = useRef(false);
+  const currentIndexRef = useRef(initialTrackIndex);
   const dragPointerIdRef = useRef(null);
   const dragStartXRef = useRef(0);
   const dragStartTimeRef = useRef(0);
+  const dragOriginOffsetRef = useRef(0);
   const dragFrameRef = useRef(0);
+  const transitionFallbackRef = useRef(null);
+  const transitionTokenRef = useRef(0);
   
   const extendedSlides = useMemo(() => {
     if (sliderSlides.length <= 1) return sliderSlides;
@@ -2748,17 +2752,108 @@ function HeroSlider({ slides, navigate, userPreferences }) {
       .forEach((src) => preloadHeroImage(src));
   }, [extendedSlides]);
 
+  const setTransitionState = useCallback((value) => {
+    isTransitioningRef.current = value;
+    setIsTransitioning(value);
+  }, []);
+
+  const clearTransitionFallback = useCallback(() => {
+    if (transitionFallbackRef.current) {
+      window.clearTimeout(transitionFallbackRef.current);
+      transitionFallbackRef.current = null;
+    }
+  }, []);
+
+  const clampTrackIndex = useCallback((index) => {
+    if (sliderSlides.length <= 1) return 0;
+    return Math.min(Math.max(index, 0), sliderSlides.length + 1);
+  }, [sliderSlides.length]);
+
+  const setTrackIndex = useCallback((index) => {
+    const safeIndex = clampTrackIndex(index);
+    currentIndexRef.current = safeIndex;
+    setCurrentIndex(safeIndex);
+    return safeIndex;
+  }, [clampTrackIndex]);
+
+  const applyTrackTransform = useCallback((withTransition = false, index = currentIndexRef.current) => {
+    if (!trackRef.current) return;
+    trackRef.current.style.transition = withTransition ? 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
+    trackRef.current.style.transform = `translate3d(calc(-${index * 100}% + ${dragOffsetRef.current}px), 0, 0)`;
+  }, []);
+
+  const cancelDragPaint = useCallback(() => {
+    if (dragFrameRef.current) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = 0;
+    }
+  }, []);
+
+  const finalizeTransition = useCallback((token = transitionTokenRef.current) => {
+    if (token !== transitionTokenRef.current) return;
+    clearTransitionFallback();
+    setTransitionState(false);
+
+    if (sliderSlides.length <= 1) {
+      dragOffsetRef.current = 0;
+      dragOriginOffsetRef.current = 0;
+      setTrackIndex(0);
+      applyTrackTransform(false, 0);
+      return;
+    }
+
+    let snapIndex = currentIndexRef.current;
+    if (currentIndexRef.current <= 0) {
+      snapIndex = sliderSlides.length;
+    } else if (currentIndexRef.current >= sliderSlides.length + 1) {
+      snapIndex = 1;
+    }
+
+    dragOffsetRef.current = 0;
+    dragOriginOffsetRef.current = 0;
+
+    if (snapIndex !== currentIndexRef.current) {
+      setTrackIndex(snapIndex);
+      window.requestAnimationFrame(() => applyTrackTransform(false, snapIndex));
+      return;
+    }
+
+    applyTrackTransform(false, snapIndex);
+  }, [applyTrackTransform, clearTransitionFallback, setTrackIndex, setTransitionState, sliderSlides.length]);
+
+  const beginTrackTransition = useCallback((targetIndex, { force = false } = {}) => {
+    if (sliderSlides.length <= 1) return false;
+    const safeIndex = clampTrackIndex(targetIndex);
+    const current = currentIndexRef.current;
+    if (!force && safeIndex === current) return false;
+
+    clearTransitionFallback();
+    transitionTokenRef.current += 1;
+    const token = transitionTokenRef.current;
+
+    dragOffsetRef.current = 0;
+    dragOriginOffsetRef.current = 0;
+    cancelDragPaint();
+    setTransitionState(true);
+    setTrackIndex(safeIndex);
+
+    if (force || safeIndex === current) {
+      applyTrackTransform(true, safeIndex);
+    }
+
+    transitionFallbackRef.current = window.setTimeout(() => finalizeTransition(token), 700);
+    return true;
+  }, [applyTrackTransform, cancelDragPaint, clampTrackIndex, clearTransitionFallback, finalizeTransition, setTrackIndex, setTransitionState, sliderSlides.length]);
+
   const goToNext = useCallback(() => {
-    if (sliderSlides.length <= 1 || isTransitioning) return;
-    setIsTransitioning(true);
-    setCurrentIndex((current) => current + 1);
-  }, [sliderSlides.length, isTransitioning]);
+    if (sliderSlides.length <= 1 || isTransitioningRef.current || isDraggingRef.current) return;
+    beginTrackTransition(currentIndexRef.current + 1);
+  }, [beginTrackTransition, sliderSlides.length]);
 
   const goToPrev = useCallback(() => {
-    if (sliderSlides.length <= 1 || isTransitioning) return;
-    setIsTransitioning(true);
-    setCurrentIndex((current) => current - 1);
-  }, [sliderSlides.length, isTransitioning]);
+    if (sliderSlides.length <= 1 || isTransitioningRef.current || isDraggingRef.current) return;
+    beginTrackTransition(currentIndexRef.current - 1);
+  }, [beginTrackTransition, sliderSlides.length]);
 
   useEffect(() => {
     if (sliderSlides.length <= 1 || isDraggingState) return undefined;
@@ -2768,86 +2863,98 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     return () => clearInterval(id);
   }, [goToNext, isDraggingState, sliderSlides.length]);
 
-  const handleTransitionEnd = () => {
-    setIsTransitioning(false);
-    if (currentIndex === 0) {
-      setCurrentIndex(sliderSlides.length);
-    } else if (currentIndex === extendedSlides.length - 1) {
-      setCurrentIndex(1);
-    }
-  };
-
-  useEffect(() => {
-    if (!isTransitioning) return undefined;
-    const fallbackTimer = setTimeout(() => {
-      handleTransitionEnd();
-    }, 650);
-    return () => clearTimeout(fallbackTimer);
-  }, [isTransitioning, currentIndex, sliderSlides.length, extendedSlides.length]);
-
-  const applyTrackTransform = useCallback((withTransition = false) => {
-    if (!trackRef.current) return;
-    trackRef.current.style.transition = withTransition ? 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none';
-    trackRef.current.style.transform = `translate3d(calc(-${currentIndex * 100}% + ${dragOffsetRef.current}px), 0, 0)`;
-  }, [currentIndex]);
-
   useLayoutEffect(() => {
-    applyTrackTransform(isTransitioning && dragOffsetRef.current === 0 && !isDraggingRef.current);
+    applyTrackTransform(isTransitioning && dragOffsetRef.current === 0 && !isDraggingRef.current, currentIndex);
   }, [applyTrackTransform, currentIndex, isTransitioning]);
 
+  useEffect(() => {
+    const resetIndex = sliderSlides.length <= 1 ? 0 : 1;
+    clearTransitionFallback();
+    transitionTokenRef.current += 1;
+    currentIndexRef.current = resetIndex;
+    dragOffsetRef.current = 0;
+    dragOriginOffsetRef.current = 0;
+    isDraggingRef.current = false;
+    dragPointerIdRef.current = null;
+    setTransitionState(false);
+    setIsDraggingState(false);
+    setCurrentIndex(resetIndex);
+  }, [clearTransitionFallback, setTransitionState, sliderSlides.length]);
+
   useEffect(() => () => {
-    if (dragFrameRef.current) window.cancelAnimationFrame(dragFrameRef.current);
-  }, []);
+    cancelDragPaint();
+    clearTransitionFallback();
+  }, [cancelDragPaint, clearTransitionFallback]);
 
   const scheduleDragPaint = useCallback(() => {
     if (dragFrameRef.current) return;
     dragFrameRef.current = window.requestAnimationFrame(() => {
       dragFrameRef.current = 0;
-      applyTrackTransform(false);
+      applyTrackTransform(false, currentIndexRef.current);
     });
   }, [applyTrackTransform]);
+
+  const getCurrentTrackTranslate = useCallback(() => {
+    if (!trackRef.current || typeof window === 'undefined') return 0;
+    const computedTransform = window.getComputedStyle(trackRef.current).transform;
+    if (!computedTransform || computedTransform === 'none') {
+      return -currentIndexRef.current * (trackRef.current.getBoundingClientRect().width || window.innerWidth);
+    }
+    try {
+      return new DOMMatrixReadOnly(computedTransform).m41;
+    } catch {
+      return -currentIndexRef.current * (trackRef.current.getBoundingClientRect().width || window.innerWidth);
+    }
+  }, []);
 
   const finishDrag = useCallback((direction = 0) => {
     isDraggingRef.current = false;
     dragPointerIdRef.current = null;
     setIsDraggingState(false);
+    cancelDragPaint();
 
-    if (dragFrameRef.current) {
-      window.cancelAnimationFrame(dragFrameRef.current);
-      dragFrameRef.current = 0;
-    }
-
-    dragOffsetRef.current = 0;
-    setIsTransitioning(true);
-
-    if (direction === 0) {
-      applyTrackTransform(true);
+    if (sliderSlides.length <= 1) {
+      dragOffsetRef.current = 0;
+      dragOriginOffsetRef.current = 0;
+      applyTrackTransform(false, 0);
       return;
     }
 
-    setCurrentIndex((current) => current + direction);
-  }, [applyTrackTransform]);
+    if (direction === 0) {
+      beginTrackTransition(currentIndexRef.current, { force: true });
+      return;
+    }
+
+    beginTrackTransition(currentIndexRef.current + direction);
+  }, [applyTrackTransform, beginTrackTransition, cancelDragPaint, sliderSlides.length]);
 
   const handlePointerDown = (event) => {
-    if (sliderSlides.length <= 1 || isTransitioning) return;
+    if (sliderSlides.length <= 1) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    if (dragFrameRef.current) {
-      window.cancelAnimationFrame(dragFrameRef.current);
-      dragFrameRef.current = 0;
+    cancelDragPaint();
+    const slideWidth = trackRef.current?.getBoundingClientRect().width || window.innerWidth;
+    const interruptedOffset = isTransitioningRef.current
+      ? getCurrentTrackTranslate() - (-currentIndexRef.current * slideWidth)
+      : 0;
+    if (isTransitioningRef.current) {
+      clearTransitionFallback();
+      transitionTokenRef.current += 1;
+      setTransitionState(false);
     }
     isDraggingRef.current = true;
     dragPointerIdRef.current = event.pointerId;
-    dragOffsetRef.current = 0;
+    dragOriginOffsetRef.current = interruptedOffset;
+    dragOffsetRef.current = interruptedOffset;
     dragStartXRef.current = event.clientX;
     dragStartTimeRef.current = event.timeStamp || performance.now();
     setIsDraggingState(true);
-    applyTrackTransform(false);
+    applyTrackTransform(false, currentIndexRef.current);
   };
 
   const handlePointerMove = (event) => {
     if (!isDraggingRef.current || dragPointerIdRef.current !== event.pointerId) return;
-    dragOffsetRef.current = event.clientX - dragStartXRef.current;
+    dragOffsetRef.current = dragOriginOffsetRef.current + (event.clientX - dragStartXRef.current);
     scheduleDragPaint();
   };
 
@@ -2855,8 +2962,8 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     if (!isDraggingRef.current || dragPointerIdRef.current !== event.pointerId) return;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     const elapsed = Math.max(1, (event.timeStamp || performance.now()) - dragStartTimeRef.current);
-    const distance = dragOffsetRef.current;
-    const width = trackRef.current?.offsetWidth || window.innerWidth;
+    const distance = event.clientX - dragStartXRef.current;
+    const width = trackRef.current?.getBoundingClientRect().width || window.innerWidth;
     const velocity = distance / elapsed;
     const threshold = Math.min(132, width * 0.14);
 
@@ -2879,15 +2986,19 @@ function HeroSlider({ slides, navigate, userPreferences }) {
     finishDrag(0);
   };
 
+  const handleTransitionEnd = (event) => {
+    if (event.target !== trackRef.current || !isTransitioningRef.current) return;
+    finalizeTransition();
+  };
+
   const activeDotIndex = sliderSlides.length <= 1 ? 0 : 
     currentIndex === 0 ? sliderSlides.length - 1 :
     currentIndex === extendedSlides.length - 1 ? 0 :
     currentIndex - 1;
 
   const handleDotSelect = (dotIndex) => {
-    if (isTransitioning || dotIndex === activeDotIndex) return;
-    setIsTransitioning(true);
-    setCurrentIndex(dotIndex + 1);
+    if (isTransitioningRef.current || isDraggingRef.current || dotIndex === activeDotIndex) return;
+    beginTrackTransition(dotIndex + 1);
   };
 
   return (
@@ -2914,6 +3025,15 @@ function HeroSlider({ slides, navigate, userPreferences }) {
           {extendedSlides.map((slide, i) => {
           const slideMeta = getAnimeMeta(slide);
           const displayTitle = getPreferredAnimeTitle(slide, userPreferences);
+          const audio = Array.isArray(slide.audio) ? slide.audio : ['sub', 'dub'];
+          const heroBadges = [
+            ...(audio.includes('sub') ? [{ key: 'sub', tone: 'sub', label: 'CC' }] : []),
+            ...(audio.includes('dub') ? [{ key: 'dub', tone: 'dub', label: 'MIC' }] : []),
+            { key: 'quality', tone: 'neutral', label: slideMeta.quality || 'HD' },
+            { key: 'rating', tone: 'neutral', label: slideMeta.ageRating || 'PG-13' },
+            { key: 'year', tone: 'neutral', label: String(slide.year || '') },
+            { key: 'type', tone: 'neutral', label: slide.type || 'TV' }
+          ].filter((badge) => badge.label);
           const key = `${slide.id}-${i}`;
           return (
             <article
@@ -2933,16 +3053,17 @@ function HeroSlider({ slides, navigate, userPreferences }) {
               <div className="heroArtworkPane" />
               <div className="heroGradientOverlay" />
               <div className="heroContent" style={{ userSelect: isDraggingState ? 'none' : 'text', WebkitUserSelect: isDraggingState ? 'none' : 'text' }}>
-                <p className="kicker">Featured Anime</p>
-                <h1 className="heroTitle">{displayTitle}</h1>
-                <div className="metaRow heroMetaRow">
-                  <span className="pgBadge">{slideMeta.ageRating}</span>
-                  <span>{slide.type}</span>
-                  <span>{slideMeta.quality}</span>
-                  <span>{getAudioLabel(slide)}</span>
-                  <span>{slide.year}</span>
+                <div className="heroCopyStack">
+                  <h1 className="heroTitle" title={displayTitle}>{displayTitle}</h1>
+                  <div className="metaRow heroMetaRow">
+                    {heroBadges.map(({ key: badgeKey, tone, label }) => (
+                      <span key={badgeKey} className={`heroMetaBadge ${tone}`}>
+                        <span>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="heroDescription" title={slide.description}>{slide.description || 'No synopsis available right now.'}</p>
                 </div>
-                <p>{slide.description}</p>
                 <div className="heroActions">
                   <button
                     className="primaryButton ovalButton"
