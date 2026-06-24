@@ -776,10 +776,185 @@ small,
   background: linear-gradient(90deg, rgba(139, 92, 246, 0.55), transparent);
 }
 
+.homeContentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 360px);
+  align-items: start;
+  gap: 28px;
+  margin-top: 28px;
+}
+
+.homePrimaryColumn {
+  min-width: 0;
+}
+
+.homePrimaryColumn > .animeSection,
+.homePrimaryColumn > .continueSection {
+  max-width: none;
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.homePrimaryColumn > .animeSection + .animeSection,
+.homePrimaryColumn > .animeSection + .continueSection,
+.homePrimaryColumn > .continueSection + .animeSection {
+  margin-top: 8px;
+}
+
+.homeSidebarColumn {
+  min-width: 0;
+}
+
 .animeGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 24px 18px;
+}
+
+.topSearchesGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 28px 16px;
+}
+
+.topSearchSidebarPanel {
+  position: sticky;
+  top: 98px;
+  padding: 18px 16px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(22, 17, 34, 0.94) 0%, rgba(11, 9, 18, 0.96) 100%),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(14px);
+}
+
+.topSearchSidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.topSearchSidebarHeader h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.topSearchSidebarHeader span {
+  width: 0;
+  height: 0;
+}
+
+.topSearchSidebarList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topSearchSidebarCard {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: 200ms ease;
+}
+
+.topSearchSidebarCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(126, 86, 255, 0.4);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.24);
+}
+
+.topSearchSidebarRow {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topSearchSidebarThumb {
+  width: 50px;
+  height: 65px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.topSearchSidebarContent {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.topSearchSidebarContent strong {
+  display: block;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topSearchSidebarMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.topSearchMetaBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.topSearchMetaBadge.sub {
+  background: #4a6cff;
+}
+
+.topSearchMetaBadge.dub {
+  background: #f05d8f;
+}
+
+.topSearchSidebarType {
+  color: rgba(227, 229, 242, 0.78);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.topSearchSidebarFooter {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.topSearchSeeMoreButton {
+  min-width: 140px;
 }
 
 .animeGrid.large {
@@ -3458,6 +3633,155 @@ textarea {
   gap: 10px;
 }
 
+.topSearchManagerGrid {
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+}
+
+.topSearchManagerPanel {
+  gap: 16px;
+}
+
+.topSearchManagerHeader,
+.topSearchAdminSectionHeader,
+.topSearchReplaceNotice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.topSearchManagerHeader h3,
+.topSearchAdminSectionHeader h3 {
+  margin: 0;
+}
+
+.topSearchSummaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topSearchSummaryRow span,
+.topSearchAdminSectionHeader span,
+.topSearchSourceBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border: 1px solid rgba(167, 139, 250, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f3ecff;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.topSearchReplaceNotice {
+  border: 1px solid rgba(167, 139, 250, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 12px;
+}
+
+.topSearchReplaceNotice strong {
+  color: #f1eaff;
+}
+
+.topSearchPickerList,
+.topSearchAdminStack {
+  display: grid;
+  gap: 10px;
+}
+
+.topSearchPickerList {
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.topSearchPickerButton,
+.topSearchManageRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.052);
+  padding: 12px;
+}
+
+.topSearchPickerButton {
+  width: 100%;
+  color: white;
+  cursor: pointer;
+  text-align: left;
+  transition: 180ms ease;
+}
+
+.topSearchPickerButton:hover {
+  border-color: rgba(167, 139, 250, 0.35);
+  background: rgba(167, 139, 250, 0.09);
+}
+
+.topSearchPickerButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.topSearchPickerButton > div,
+.topSearchManageMeta > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.topSearchPickerButton strong,
+.topSearchManageMeta strong {
+  font-size: 14px;
+}
+
+.topSearchPickerButton small,
+.topSearchManageMeta small {
+  color: var(--muted);
+}
+
+.topSearchManageMeta {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topSearchManageMeta > span {
+  color: var(--purple-2);
+  font-weight: 900;
+}
+
+.topSearchManageActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.topSearchSourceBadge.pinned {
+  border-color: rgba(236, 72, 153, 0.2);
+  background: rgba(236, 72, 153, 0.12);
+}
+
+.topSearchSourceBadge.curated {
+  border-color: rgba(139, 92, 246, 0.24);
+  background: rgba(139, 92, 246, 0.14);
+}
+
+.topSearchSourceBadge.analytics {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .controlRow {
   display: grid;
   grid-template-columns: 42px 1fr 120px;
@@ -3602,6 +3926,22 @@ textarea {
   .controlRow input {
     grid-column: 1 / -1;
   }
+
+  .topSearchesGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .topSearchManageRow,
+  .topSearchReplaceNotice,
+  .topSearchManagerHeader,
+  .topSearchAdminSectionHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topSearchManageActions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 560px) {
@@ -3618,6 +3958,20 @@ textarea {
     grid-column: 1 / -1;
   }
 
+  .topSearchesGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 12px;
+  }
+
+  .topSearchSummaryRow {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topSearchManageMeta {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
   .topbar {
     grid-template-columns: auto auto 1fr;
   }
@@ -3626,6 +3980,30 @@ textarea {
   .avatarButton,
   .headerActions > .iconButton:not(.searchIconButton) {
     display: none;
+  }
+}
+
+@media (max-width: 1380px) {
+  .topSearchesGrid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1180px) {
+  .homeContentGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .topSearchSidebarPanel {
+    position: static;
+  }
+
+  .topSearchesGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .topSearchManagerGrid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -6091,6 +6469,21 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .homeContentGrid {
+    gap: 22px;
+    margin-top: 22px;
+  }
+
+  .topSearchSidebarPanel {
+    padding: 16px 14px 18px;
+    border-radius: 18px;
+  }
+
+  .topSearchSidebarRow {
+    gap: 10px;
+    padding: 9px;
+  }
+
   .topbar {
     display: block;
     padding-inline: 12px;

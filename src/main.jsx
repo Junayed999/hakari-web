@@ -130,6 +130,13 @@ const watchlistCategories = ['Watching', 'On-Hold', 'Planned', 'Watched', 'Dropp
 
 const animeTypes = ['Movie', 'Music', 'ONA', 'OVA', 'Special', 'TV'];
 const sidebarCategories = ['Home', 'Genre', 'Types', 'Updated', 'Added', 'Popular', 'Ongoing', 'Completed'];
+const MAX_HOME_TOP_SEARCHES = 15;
+const INITIAL_HOME_TOP_SEARCHES_VISIBLE = 15;
+const defaultTopSearchSettings = {
+  pinnedIds: [],
+  manualIds: [],
+  hiddenIds: []
+};
 
 const defaultSiteSettings = {
   landing: {
@@ -141,11 +148,13 @@ const defaultSiteSettings = {
   homepageSections: {
     featured: true,
     trending: true,
+    topSearches: true,
     topAiring: true,
     latestEpisodes: true,
     mostPopular: true,
     recentlyAdded: true
   },
+  topSearches: defaultTopSearchSettings,
   genres: Object.fromEntries(genres.map((genre) => [genre, true])),
   types: Object.fromEntries(animeTypes.map((type) => [type, true]))
 };
@@ -754,6 +763,28 @@ function normalizeWatchlist(value) {
   return value && typeof value === 'object' ? value : {};
 }
 
+function normalizeTopSearchSettings(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const normalizeIds = (items) => (
+    Array.isArray(items)
+      ? items
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .filter((item, index, list) => list.indexOf(item) === index)
+      : []
+  );
+
+  const pinnedIds = normalizeIds(source.pinnedIds);
+  const manualIds = normalizeIds(source.manualIds).filter((id) => !pinnedIds.includes(id));
+  const hiddenIds = normalizeIds(source.hiddenIds).filter((id) => !pinnedIds.includes(id) && !manualIds.includes(id));
+
+  return {
+    pinnedIds,
+    manualIds,
+    hiddenIds
+  };
+}
+
 function getAnimeMeta(anime) {
   return {
     ageRating: anime.ageRating || 'PG-13',
@@ -835,12 +866,38 @@ function getVisibleTypes(anime, settings = defaultSiteSettings) {
   return animeTypes.filter((type) => occupied.has(type) && settings.types?.[type] !== false);
 }
 
-function getTopSearches(anime, analytics, limit = 7) {
+function getRankedSearchAnime(anime, analytics) {
   return [...anime]
     .map((item) => ({ item, searches: Number(analytics[item.id] || 0) }))
     .sort((a, b) => b.searches - a.searches || b.item.views - a.item.views)
-    .slice(0, limit)
     .map(({ item, searches }) => ({ ...item, searches }));
+}
+
+function getTopSearches(anime, analytics, limit = 7) {
+  return getRankedSearchAnime(anime, analytics).slice(0, limit);
+}
+
+function resolveHomeTopSearches(anime, analytics, settings, limit = MAX_HOME_TOP_SEARCHES) {
+  const ranked = getRankedSearchAnime(anime, analytics);
+  const byId = new Map(ranked.map((item) => [item.id, item]));
+  const { pinnedIds, manualIds, hiddenIds } = normalizeTopSearchSettings(settings);
+  const hiddenSet = new Set(hiddenIds);
+  const items = [];
+  const seen = new Set();
+
+  const pushById = (id) => {
+    if (seen.has(id) || hiddenSet.has(id)) return;
+    const item = byId.get(id);
+    if (!item) return;
+    seen.add(id);
+    items.push(item);
+  };
+
+  pinnedIds.forEach(pushById);
+  manualIds.forEach(pushById);
+  ranked.forEach((item) => pushById(item.id));
+
+  return items.slice(0, limit);
 }
 
 function normalizeSearchText(value = '') {
@@ -876,6 +933,23 @@ function sortSearchItems(items, tokens, normalizedQuery) {
     if (scoreDiff) return scoreDiff;
     return Number(b.views || 0) - Number(a.views || 0) || a.title.localeCompare(b.title);
   });
+}
+
+function findBestSearchMatch(anime, query) {
+  const normalizedQuery = normalizeSearchText(query);
+  const tokens = getSearchTokens(query);
+
+  if (!normalizedQuery) return null;
+
+  const exactMatch = anime.find((item) =>
+    [item.title, item.english, item.japanese]
+      .filter(Boolean)
+      .some((value) => normalizeSearchText(value) === normalizedQuery)
+  );
+  if (exactMatch) return exactMatch;
+
+  const ranked = sortSearchItems(anime, tokens, normalizedQuery);
+  return ranked.find((item) => scoreSearchMatch(item, tokens, normalizedQuery) > 0) || null;
 }
 
 function getSearchResultGroups(anime, query) {
@@ -1054,6 +1128,7 @@ function App() {
     landing: { ...defaultSiteSettings.landing, ...(siteSettings.landing || {}) },
     sidebar: { ...defaultSiteSettings.sidebar, ...(siteSettings.sidebar || {}) },
     homepageSections: { ...defaultSiteSettings.homepageSections, ...(siteSettings.homepageSections || {}) },
+    topSearches: normalizeTopSearchSettings(siteSettings.topSearches || defaultTopSearchSettings),
     genres: { ...defaultSiteSettings.genres, ...(siteSettings.genres || {}) },
     types: { ...defaultSiteSettings.types, ...(siteSettings.types || {}) }
   }), [siteSettings]);
@@ -1079,12 +1154,10 @@ function App() {
   const openWatchlistModal = useCallback((animeId) => setWatchlistTarget(animeId), []);
 
   const addSearch = useCallback((term) => {
-    const clean = term.trim();
-    if (!clean) return;
-    const direct = findAnimeByTitle(anime, clean);
-    if (direct) {
-      setSearchAnalytics((items) => ({ ...items, [direct.id]: Number(items[direct.id] || 0) + 1 }));
-    }
+    const clean = typeof term === 'string' ? term.trim() : '';
+    const target = typeof term === 'object' && term?.id ? term : findBestSearchMatch(anime, clean);
+    if (!target?.id) return;
+    setSearchAnalytics((items) => ({ ...items, [target.id]: Number(items[target.id] || 0) + 1 }));
   }, [anime, setSearchAnalytics]);
 
   const updateProgress = useCallback((entry) => {
@@ -1976,7 +2049,7 @@ function HeaderSearch({ anime, navigate, addSearch, watchlist, setWatchlistCateg
     : undefined;
 
   const selectAnime = (item, closeMobile = false) => {
-    addSearch(item.title);
+    addSearch(item);
     rememberSearch(item.title);
     navigate({ name: 'search', query: item.title });
     setIsFocused(false);
@@ -2202,19 +2275,33 @@ function HeaderSearch({ anime, navigate, addSearch, watchlist, setWatchlistCateg
 }
 
 function HomePage(props) {
-  const { anime, siteSettings, userPreferences } = props;
+  const { anime, siteSettings, userPreferences, searchAnalytics } = props;
   const sections = siteSettings.homepageSections || defaultSiteSettings.homepageSections;
   const trendingAnime = anime.filter((item) => item.tags.includes('trending')).slice(0, 10);
+  const topSearchItems = useMemo(
+    () => resolveHomeTopSearches(anime, searchAnalytics, siteSettings.topSearches, anime.length),
+    [anime, searchAnalytics, siteSettings.topSearches]
+  );
+
   return (
     <>
       <HeroSlider {...props} slides={anime.filter((item) => item.tags.includes('featured')).slice(0, 4)} />
       {trendingAnime.length > 0 && <TrendingHeroSection items={trendingAnime} navigate={props.navigate} userPreferences={props.userPreferences} />}
-      {userPreferences.showContinueWatchingOnHome && <ContinueWatching {...props} />}
-      {sections.featured && <AnimeSection title="Featured Anime" items={anime.filter((item) => item.tags.includes('featured'))} {...props} />}
-      {sections.topAiring && <AnimeSection title="Top Airing" items={anime.filter((item) => item.tags.includes('topAiring'))} {...props} />}
-      {sections.latestEpisodes && <AnimeSection title="Latest Episodes" items={[...anime].sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a))} latest {...props} />}
-      {sections.mostPopular && <AnimeSection title="Most Popular" items={[...anime].sort((a, b) => b.views - a.views)} {...props} />}
-      {sections.recentlyAdded && <AnimeSection title="Recently Added" items={[...anime].sort((a, b) => getAddedTime(b) - getAddedTime(a)).slice(0, 10)} {...props} />}
+      <div className="homeContentGrid siteContainer">
+        <div className="homePrimaryColumn">
+          {userPreferences.showContinueWatchingOnHome && <ContinueWatching {...props} withinHomeGrid />}
+          {sections.featured && <AnimeSection title="Featured Anime" items={anime.filter((item) => item.tags.includes('featured'))} withinHomeGrid {...props} />}
+          {sections.topAiring && <AnimeSection title="Top Airing" items={anime.filter((item) => item.tags.includes('topAiring'))} withinHomeGrid {...props} />}
+          {sections.latestEpisodes && <AnimeSection title="Latest Episodes" items={[...anime].sort((a, b) => getUpdatedTime(b) - getUpdatedTime(a))} latest withinHomeGrid {...props} />}
+          {sections.mostPopular && <AnimeSection title="Most Popular" items={[...anime].sort((a, b) => b.views - a.views)} withinHomeGrid {...props} />}
+          {sections.recentlyAdded && <AnimeSection title="Recently Added" items={[...anime].sort((a, b) => getAddedTime(b) - getAddedTime(a)).slice(0, 10)} withinHomeGrid {...props} />}
+        </div>
+        {sections.topSearches && topSearchItems.length > 0 && (
+          <aside className="homeSidebarColumn">
+            <TopSearchesSection items={topSearchItems} {...props} />
+          </aside>
+        )}
+      </div>
     </>
   );
 }
@@ -2913,10 +3000,10 @@ function CategoryStrip({ navigate }) {
   );
 }
 
-function ContinueWatching({ history, anime, navigate, watchlist, setWatchlistCategory, userPreferences }) {
+function ContinueWatching({ history, anime, navigate, watchlist, setWatchlistCategory, userPreferences, withinHomeGrid = false }) {
   if (!history || history.length === 0) return null;
   return (
-    <section className="continueSection siteContainer">
+    <section className={`continueSection${withinHomeGrid ? '' : ' siteContainer'}`}>
       <SectionHeading title="Continue Watching" />
       <div className="continueGrid">
         {history.map((entry) => {
@@ -2949,12 +3036,73 @@ function ContinueWatching({ history, anime, navigate, watchlist, setWatchlistCat
   );
 }
 
-function AnimeSection({ title, items, navigate, watchlist, openWatchlistModal, setWatchlistCategory, latest, userPreferences }) {
+function TopSearchesSection({ items, navigate, watchlist, setWatchlistCategory, userPreferences }) {
+  if (!items.length) return null;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleItems = isExpanded ? items : items.slice(0, INITIAL_HOME_TOP_SEARCHES_VISIBLE);
+  const hasMoreItems = items.length > INITIAL_HOME_TOP_SEARCHES_VISIBLE;
+
+  return (
+    <section className="topSearchSidebarPanel">
+      <div className="topSearchSidebarHeader">
+        <h2>Top Search</h2>
+        <span aria-hidden="true" />
+      </div>
+      <motion.div layout className="topSearchSidebarList">
+        {visibleItems.map((item) => {
+          const displayTitle = getPreferredAnimeTitle(item, userPreferences);
+          const audio = Array.isArray(item.audio) ? item.audio : ['sub', 'dub'];
+          const hasDub = audio.includes('dub');
+          return (
+            <HoverCard
+              key={`top-search-${item.id}`}
+              anime={item}
+              navigate={navigate}
+              className="topSearchSidebarCard"
+              watchlist={watchlist}
+              setWatchlistCategory={setWatchlistCategory}
+              mobileNavigateRoute={{ name: 'detail', id: item.id }}
+            >
+              <button className="topSearchSidebarRow" onClick={() => navigate({ name: 'detail', id: item.id })} aria-label={`Open ${displayTitle} details`}>
+                <img className="topSearchSidebarThumb" src={getAnimeImage(item)} alt="" loading="lazy" />
+                <span className="topSearchSidebarContent">
+                  <strong title={displayTitle}>{displayTitle}</strong>
+                  <span className="topSearchSidebarMeta">
+                    <span className="topSearchMetaBadge sub">
+                      <ClosedCaption size={11} />
+                      {item.episodes ?? '?'}
+                    </span>
+                    {hasDub && (
+                      <span className="topSearchMetaBadge dub">
+                        <Mic size={11} />
+                        {item.episodes ?? '?'}
+                      </span>
+                    )}
+                    <span className="topSearchSidebarType">{item.type}</span>
+                  </span>
+                </span>
+              </button>
+            </HoverCard>
+          );
+        })}
+      </motion.div>
+      {hasMoreItems && !isExpanded && (
+        <div className="topSearchSidebarFooter">
+          <button className="ghostButton ovalButton topSearchSeeMoreButton" onClick={() => setIsExpanded(true)}>
+            See More
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AnimeSection({ title, items, navigate, watchlist, openWatchlistModal, setWatchlistCategory, latest, userPreferences, withinHomeGrid = false }) {
   if (!items.length) return null;
   const isLimited = items.length > 12;
   const displayItems = isLimited ? items.slice(0, 12) : items;
   return (
-    <section className="animeSection siteContainer">
+    <section className={`animeSection${withinHomeGrid ? '' : ' siteContainer'}`}>
       <SectionHeading title={title} navigate={navigate} />
       <div className="animeGrid">
         {displayItems.map((item) => (
@@ -4094,12 +4242,12 @@ function AdminPage({ anime, setAnime, user, siteSettings, setSiteSettings, searc
         )}
         {tab === 'anime' && <AnimeManager anime={anime} setAnime={setAnime} />}
         {tab === 'episodes' && <EpisodeManager anime={anime} />}
-        {tab === 'topSearches' && <TopSearchControls anime={anime} searchAnalytics={searchAnalytics} setSearchAnalytics={setSearchAnalytics} />}
+        {tab === 'topSearches' && <TopSearchSectionManager anime={anime} siteSettings={siteSettings} setSiteSettings={setSiteSettings} searchAnalytics={searchAnalytics} />}
         {tab === 'sidebar' && <VisibilityControls title="Sidebar Categories" entries={sidebarCategories} values={siteSettings.sidebar || {}} onChange={(next) => setSiteSettings((settings) => ({ ...settings, sidebar: next }))} />}
         {tab === 'genres' && <VisibilityControls title="Genre Visibility" entries={getVisibleGenres(anime, { ...siteSettings, genres: genres.reduce((all, genre) => ({ ...all, [genre]: true }), {}) })} values={siteSettings.genres || {}} onChange={(next) => setSiteSettings((settings) => ({ ...settings, genres: next }))} />}
         {tab === 'types' && <VisibilityControls title="Type Visibility" entries={getVisibleTypes(anime, { ...siteSettings, types: animeTypes.reduce((all, type) => ({ ...all, [type]: true }), {}) })} values={siteSettings.types || {}} onChange={(next) => setSiteSettings((settings) => ({ ...settings, types: next }))} />}
         {tab === 'builder' && <HomepageSectionControls settings={siteSettings} setSiteSettings={setSiteSettings} />}
-        {tab === 'analytics' && <TopSearchControls anime={anime} searchAnalytics={searchAnalytics} setSearchAnalytics={setSearchAnalytics} analyticsOnly />}
+        {tab === 'analytics' && <TopSearchAnalyticsControls anime={anime} searchAnalytics={searchAnalytics} setSearchAnalytics={setSearchAnalytics} />}
         {tab === 'users' && <AdminTable title="Users" rows={[['Jun', 'jun@hakari.local', 'Moderator'], ['Mika', 'mika@hakari.local', 'Active'], ['Ren', 'ren@hakari.local', 'Banned']]} />}
         {['announcements', 'settings'].includes(tab) && <SettingsPanel tab={tab} />}
       </div>
@@ -4246,7 +4394,364 @@ function HomepageBuilder({ anime, setAnime }) {
   );
 }
 
-function TopSearchControls({ anime, searchAnalytics, setSearchAnalytics, analyticsOnly = false }) {
+function TopSearchSectionManager({ anime, siteSettings, setSiteSettings, searchAnalytics }) {
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [replaceTarget, setReplaceTarget] = useState(null);
+  const sectionSettings = siteSettings.homepageSections || defaultSiteSettings.homepageSections;
+  const topSearchSettings = normalizeTopSearchSettings(siteSettings.topSearches || defaultTopSearchSettings);
+  const rankedAnime = useMemo(() => getRankedSearchAnime(anime, searchAnalytics), [anime, searchAnalytics]);
+  const previewItems = useMemo(
+    () => resolveHomeTopSearches(anime, searchAnalytics, topSearchSettings, MAX_HOME_TOP_SEARCHES),
+    [anime, searchAnalytics, topSearchSettings]
+  );
+  const animeById = useMemo(() => new Map(rankedAnime.map((item) => [item.id, item])), [rankedAnime]);
+  const curatedIds = useMemo(
+    () => new Set([...topSearchSettings.pinnedIds, ...topSearchSettings.manualIds]),
+    [topSearchSettings.manualIds, topSearchSettings.pinnedIds]
+  );
+  const curatedCount = topSearchSettings.pinnedIds.length + topSearchSettings.manualIds.length;
+  const hiddenItems = topSearchSettings.hiddenIds.map((id) => animeById.get(id) || anime.find((item) => item.id === id)).filter(Boolean);
+
+  const commitTopSearchSettings = useCallback((updater) => {
+    setSiteSettings((current) => {
+      const nextSettings = normalizeTopSearchSettings(current.topSearches || defaultTopSearchSettings);
+      const draft = typeof updater === 'function' ? updater(nextSettings) : updater;
+      return {
+        ...current,
+        topSearches: normalizeTopSearchSettings(draft)
+      };
+    });
+  }, [setSiteSettings]);
+
+  const toggleSection = useCallback(() => {
+    setSiteSettings((current) => {
+      const currentSections = { ...defaultSiteSettings.homepageSections, ...(current.homepageSections || {}) };
+      return {
+        ...current,
+        homepageSections: {
+          ...currentSections,
+          topSearches: currentSections.topSearches === false
+        }
+      };
+    });
+  }, [setSiteSettings]);
+
+  const moveInList = useCallback((listKey, index, direction) => {
+    commitTopSearchSettings((current) => {
+      const list = [...current[listKey]];
+      const targetIndex = clamp(index + direction, 0, list.length - 1);
+      if (targetIndex === index) return current;
+      const [movedId] = list.splice(index, 1);
+      list.splice(targetIndex, 0, movedId);
+      return { ...current, [listKey]: list };
+    });
+  }, [commitTopSearchSettings]);
+
+  const addManual = useCallback((id) => {
+    commitTopSearchSettings((current) => {
+      const alreadyCurated = current.pinnedIds.includes(id) || current.manualIds.includes(id);
+      if (!alreadyCurated && current.pinnedIds.length + current.manualIds.length >= MAX_HOME_TOP_SEARCHES) {
+        return current;
+      }
+      return {
+        ...current,
+        pinnedIds: current.pinnedIds.filter((entry) => entry !== id),
+        manualIds: [...current.manualIds.filter((entry) => entry !== id), id],
+        hiddenIds: current.hiddenIds.filter((entry) => entry !== id)
+      };
+    });
+    setReplaceTarget(null);
+    setPickerQuery('');
+  }, [commitTopSearchSettings]);
+
+  const pinAnime = useCallback((id) => {
+    commitTopSearchSettings((current) => {
+      const alreadyCurated = current.pinnedIds.includes(id) || current.manualIds.includes(id);
+      const pinnedIds = current.pinnedIds.filter((entry) => entry !== id);
+      const manualIds = current.manualIds.filter((entry) => entry !== id);
+      if (!alreadyCurated && pinnedIds.length + manualIds.length >= MAX_HOME_TOP_SEARCHES) {
+        return current;
+      }
+      return {
+        ...current,
+        pinnedIds: [...pinnedIds, id],
+        manualIds,
+        hiddenIds: current.hiddenIds.filter((entry) => entry !== id)
+      };
+    });
+    setReplaceTarget(null);
+    setPickerQuery('');
+  }, [commitTopSearchSettings]);
+
+  const unpinAnime = useCallback((id) => {
+    commitTopSearchSettings((current) => ({
+      ...current,
+      pinnedIds: current.pinnedIds.filter((entry) => entry !== id),
+      manualIds: [...current.manualIds.filter((entry) => entry !== id), id],
+      hiddenIds: current.hiddenIds.filter((entry) => entry !== id)
+    }));
+  }, [commitTopSearchSettings]);
+
+  const hideAnime = useCallback((id) => {
+    commitTopSearchSettings((current) => ({
+      ...current,
+      pinnedIds: current.pinnedIds.filter((entry) => entry !== id),
+      manualIds: current.manualIds.filter((entry) => entry !== id),
+      hiddenIds: [...current.hiddenIds.filter((entry) => entry !== id), id]
+    }));
+    setReplaceTarget((current) => (current?.animeId === id ? null : current));
+  }, [commitTopSearchSettings]);
+
+  const restoreHidden = useCallback((id) => {
+    commitTopSearchSettings((current) => ({
+      ...current,
+      hiddenIds: current.hiddenIds.filter((entry) => entry !== id)
+    }));
+  }, [commitTopSearchSettings]);
+
+  const handlePickAnime = useCallback((id) => {
+    if (!replaceTarget) {
+      addManual(id);
+      return;
+    }
+
+    commitTopSearchSettings((current) => {
+      if (!replaceTarget.animeId || replaceTarget.animeId === id) {
+        return {
+          ...current,
+          hiddenIds: current.hiddenIds.filter((entry) => entry !== id)
+        };
+      }
+
+      if (replaceTarget.list === 'analytics') {
+        if (current.pinnedIds.length + current.manualIds.length >= MAX_HOME_TOP_SEARCHES) {
+          return current;
+        }
+        return {
+          ...current,
+          manualIds: [...current.manualIds.filter((entry) => entry !== id), id],
+          hiddenIds: [...current.hiddenIds.filter((entry) => entry !== id && entry !== replaceTarget.animeId), replaceTarget.animeId]
+        };
+      }
+
+      const listKey = replaceTarget.list === 'pinned' ? 'pinnedIds' : 'manualIds';
+      const otherKey = listKey === 'pinnedIds' ? 'manualIds' : 'pinnedIds';
+      const nextList = [...current[listKey]];
+      const replacedId = nextList[replaceTarget.index];
+      if (!replacedId) return current;
+
+      nextList[replaceTarget.index] = id;
+
+      return {
+        ...current,
+        [listKey]: nextList.filter((entry, index, list) => list.indexOf(entry) === index),
+        [otherKey]: current[otherKey].filter((entry) => entry !== id),
+        hiddenIds: [...current.hiddenIds.filter((entry) => entry !== id && entry !== replacedId), replacedId]
+      };
+    });
+
+    setReplaceTarget(null);
+    setPickerQuery('');
+  }, [addManual, commitTopSearchSettings, replaceTarget]);
+
+  const pickerResults = useMemo(() => {
+    const activeId = replaceTarget?.animeId;
+    const candidates = rankedAnime.filter((item) => !curatedIds.has(item.id) || item.id === activeId);
+    const cleanQuery = pickerQuery.trim();
+
+    if (!cleanQuery) return candidates.slice(0, 10);
+
+    const normalizedQuery = normalizeSearchText(cleanQuery);
+    const tokens = getSearchTokens(cleanQuery);
+    return sortSearchItems(candidates, tokens, normalizedQuery)
+      .filter((item) => scoreSearchMatch(item, tokens, normalizedQuery) > 0)
+      .slice(0, 10);
+  }, [curatedIds, pickerQuery, rankedAnime, replaceTarget]);
+
+  const startReplace = (list, animeId, index = -1) => {
+    setReplaceTarget({ list, animeId, index });
+    setPickerQuery('');
+  };
+
+  const renderManagedRows = (items, listType) => (
+    items.map((id, index) => {
+      const item = animeById.get(id) || anime.find((entry) => entry.id === id);
+      if (!item) return null;
+      return (
+        <div key={`${listType}-${id}`} className="topSearchManageRow">
+          <div className="topSearchManageMeta">
+            <span>{String(index + 1).padStart(2, '0')}</span>
+            <div>
+              <strong>{getPreferredAnimeTitle(item)}</strong>
+              <small>{item.searches || Number(searchAnalytics[item.id] || 0)} searches</small>
+            </div>
+          </div>
+          <div className="topSearchManageActions">
+            <button className="ghostButton compact" disabled={index === 0} onClick={() => moveInList(listType === 'pinned' ? 'pinnedIds' : 'manualIds', index, -1)}>Up</button>
+            <button className="ghostButton compact" disabled={index === items.length - 1} onClick={() => moveInList(listType === 'pinned' ? 'pinnedIds' : 'manualIds', index, 1)}>Down</button>
+            {listType === 'pinned' ? (
+              <button className="ghostButton compact" onClick={() => unpinAnime(item.id)}>Unpin</button>
+            ) : (
+              <button className="ghostButton compact" onClick={() => pinAnime(item.id)}>Pin</button>
+            )}
+            <button className="ghostButton compact" onClick={() => startReplace(listType, item.id, index)}><Pencil size={14} /> Replace</button>
+            <button className="ghostButton compact" onClick={() => hideAnime(item.id)}><Trash2 size={14} /> Remove</button>
+          </div>
+        </div>
+      );
+    })
+  );
+
+  return (
+    <div className="managerGrid topSearchManagerGrid">
+      <div className="formPanel topSearchManagerPanel">
+        <div className="topSearchManagerHeader">
+          <div>
+            <h3>Top Searches Manager</h3>
+            <p className="mutedText">Pin anime, curate manual picks, hide analytics-driven items, and keep the Home-page list capped at 15 cards.</p>
+          </div>
+          <TogglePill checked={sectionSettings.topSearches !== false} onToggle={toggleSection} />
+        </div>
+        <div className="topSearchSummaryRow">
+          <span>{previewItems.length}/{MAX_HOME_TOP_SEARCHES} live cards</span>
+          <span>{curatedCount} curated</span>
+          <span>{topSearchSettings.hiddenIds.length} hidden</span>
+        </div>
+        <label>
+          {replaceTarget ? 'Choose a replacement anime' : 'Search anime to add'}
+          <input
+            value={pickerQuery}
+            onChange={(event) => setPickerQuery(event.target.value)}
+            placeholder={replaceTarget ? 'Search replacement anime...' : 'Search anime titles...'}
+          />
+        </label>
+        {replaceTarget && (
+          <div className="topSearchReplaceNotice">
+            <strong>Replacing:</strong> {getPreferredAnimeTitle(animeById.get(replaceTarget.animeId) || anime.find((item) => item.id === replaceTarget.animeId) || { title: replaceTarget.animeId })}
+            <button className="ghostButton compact" onClick={() => setReplaceTarget(null)}>Cancel</button>
+          </div>
+        )}
+        {curatedCount >= MAX_HOME_TOP_SEARCHES && !replaceTarget && (
+          <p className="mutedText">Curated picks already fill all 15 available Home-page slots.</p>
+        )}
+        <div className="topSearchPickerList">
+          {pickerResults.length ? pickerResults.map((item) => {
+            const alreadyPinned = topSearchSettings.pinnedIds.includes(item.id);
+            const alreadyManual = topSearchSettings.manualIds.includes(item.id);
+            return (
+              <button
+                key={`picker-${item.id}`}
+                className="topSearchPickerButton"
+                onClick={() => handlePickAnime(item.id)}
+                disabled={!replaceTarget && curatedCount >= MAX_HOME_TOP_SEARCHES && !alreadyPinned && !alreadyManual}
+              >
+                <div>
+                  <strong>{getPreferredAnimeTitle(item)}</strong>
+                  <small>{item.searches} searches • {item.type} • {item.year}</small>
+                </div>
+                <span>{replaceTarget ? 'Replace' : alreadyPinned ? 'Pinned' : alreadyManual ? 'Added' : 'Add'}</span>
+              </button>
+            );
+          }) : (
+            <div className="emptyWide">No anime matched this picker search.</div>
+          )}
+        </div>
+      </div>
+      <div className="topSearchAdminStack">
+        <div className="topSearchAdminSection">
+          <div className="topSearchAdminSectionHeader">
+            <h3>Live Home Preview</h3>
+            <span>{previewItems.length} items</span>
+          </div>
+          <div className="adminControlList">
+            {previewItems.map((item, index) => {
+              const source = topSearchSettings.pinnedIds.includes(item.id)
+                ? 'Pinned'
+                : topSearchSettings.manualIds.includes(item.id)
+                  ? 'Curated'
+                  : 'Analytics';
+              return (
+                <div key={`preview-${item.id}`} className="topSearchManageRow">
+                  <div className="topSearchManageMeta">
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    <div>
+                      <strong>{getPreferredAnimeTitle(item)}</strong>
+                      <small>{item.searches} searches</small>
+                    </div>
+                  </div>
+                  <div className="topSearchManageActions">
+                    <span className={`topSearchSourceBadge ${source.toLowerCase()}`}>{source}</span>
+                    {source === 'Pinned' ? (
+                      <button className="ghostButton compact" onClick={() => unpinAnime(item.id)}>Unpin</button>
+                    ) : source === 'Curated' ? (
+                      <button className="ghostButton compact" onClick={() => pinAnime(item.id)}>Pin</button>
+                    ) : (
+                      <>
+                        <button className="ghostButton compact" onClick={() => addManual(item.id)}><Plus size={14} /> Add</button>
+                        <button className="ghostButton compact" onClick={() => pinAnime(item.id)}>Pin</button>
+                      </>
+                    )}
+                    <button className="ghostButton compact" onClick={() => startReplace(source === 'Pinned' ? 'pinned' : source === 'Curated' ? 'manual' : 'analytics', item.id, source === 'Pinned' ? topSearchSettings.pinnedIds.indexOf(item.id) : source === 'Curated' ? topSearchSettings.manualIds.indexOf(item.id) : -1)}>
+                      <Pencil size={14} /> Replace
+                    </button>
+                    <button className="ghostButton compact" onClick={() => hideAnime(item.id)}><Trash2 size={14} /> Remove</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="topSearchAdminSection">
+          <div className="topSearchAdminSectionHeader">
+            <h3>Pinned Anime</h3>
+            <span>{topSearchSettings.pinnedIds.length}</span>
+          </div>
+          <div className="adminControlList">
+            {topSearchSettings.pinnedIds.length ? renderManagedRows(topSearchSettings.pinnedIds, 'pinned') : <div className="emptyWide">No pinned anime yet.</div>}
+          </div>
+        </div>
+
+        <div className="topSearchAdminSection">
+          <div className="topSearchAdminSectionHeader">
+            <h3>Curated Manual Picks</h3>
+            <span>{topSearchSettings.manualIds.length}</span>
+          </div>
+          <div className="adminControlList">
+            {topSearchSettings.manualIds.length ? renderManagedRows(topSearchSettings.manualIds, 'manual') : <div className="emptyWide">No curated manual picks yet.</div>}
+          </div>
+        </div>
+
+        <div className="topSearchAdminSection">
+          <div className="topSearchAdminSectionHeader">
+            <h3>Hidden From Auto-Ranking</h3>
+            <span>{hiddenItems.length}</span>
+          </div>
+          <div className="adminControlList">
+            {hiddenItems.length ? hiddenItems.map((item) => (
+              <div key={`hidden-${item.id}`} className="topSearchManageRow">
+                <div className="topSearchManageMeta">
+                  <span>--</span>
+                  <div>
+                    <strong>{getPreferredAnimeTitle(item)}</strong>
+                    <small>{Number(searchAnalytics[item.id] || 0)} searches</small>
+                  </div>
+                </div>
+                <div className="topSearchManageActions">
+                  <button className="ghostButton compact" onClick={() => restoreHidden(item.id)}>Restore</button>
+                  <button className="ghostButton compact" onClick={() => addManual(item.id)}><Plus size={14} /> Add</button>
+                  <button className="ghostButton compact" onClick={() => pinAnime(item.id)}>Pin</button>
+                </div>
+              </div>
+            )) : <div className="emptyWide">No hidden anime.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TopSearchAnalyticsControls({ anime, searchAnalytics, setSearchAnalytics }) {
   const rows = getTopSearches(anime, searchAnalytics, anime.length);
   const updateCount = (id, value) => {
     setSearchAnalytics((items) => ({ ...items, [id]: Math.max(0, Number(value) || 0) }));
@@ -4255,7 +4760,7 @@ function TopSearchControls({ anime, searchAnalytics, setSearchAnalytics, analyti
   return (
     <div className="managerGrid">
       <div className="formPanel">
-        <h3>{analyticsOnly ? 'Search Analytics' : 'Top Searches'}</h3>
+        <h3>Search Analytics</h3>
         <p className="mutedText">Counts control the popular search ordering used across Hakari.</p>
         <button className="ghostButton compact" onClick={() => setSearchAnalytics(defaultSearchAnalytics)}>
           Reset Analytics
@@ -4305,6 +4810,7 @@ function HomepageSectionControls({ settings, setSiteSettings }) {
   const labels = {
     featured: 'Featured Anime',
     trending: 'Trending Anime',
+    topSearches: 'Top Searches',
     topAiring: 'Top Airing',
     latestEpisodes: 'Latest Episodes',
     mostPopular: 'Most Popular',
